@@ -23,6 +23,7 @@ import {
   IconLayoutDashboard,
   IconLogout,
   IconMap2,
+  IconCurrentLocation,
   IconMaximize,
   IconMenu2,
   IconSearch,
@@ -209,6 +210,40 @@ function displayBuildingLine(buildingNumber: string, name: string) {
 
 const MAP_ZOOM_STEP = 5;
 
+// lon/lat -> site-map percent. Web Mercator tile coordinates at zoom 18
+// (X, Y), then a fitted affine transform (rotation, scale, offset) found from
+// the KML building points against their positions on the map image.
+// Fit residual 0 m on the 76 KML points. Traced building outlines sit a median
+// 5 m (max 19 m) from the transformed KML points.
+const GEO_FIT = {
+  A: 4.9070176766111135,
+  B: -4.41829856146164,
+  C: -276083.78964765323,
+  D: 8.526502500142746,
+  E: 9.46964038438094,
+  F: -2318339.376707291,
+  // metres per 1% of map width / height (for the accuracy circle)
+  metersPerPctX: 20.078497170290515,
+  metersPerPctY: 10.404359250738624,
+};
+function geoToMapPercent(lat: number, lon: number) {
+  const n = 2 ** 18;
+  const X = ((lon + 180) / 360) * n;
+  const Y =
+    ((1 - Math.asinh(Math.tan((lat * Math.PI) / 180)) / Math.PI) / 2) * n;
+  return {
+    x: GEO_FIT.A * X + GEO_FIT.B * Y + GEO_FIT.C,
+    y: GEO_FIT.D * X + GEO_FIT.E * Y + GEO_FIT.F,
+  };
+}
+type GeoState = {
+  status: "off" | "locating" | "ok" | "outside" | "denied" | "error";
+  x?: number;
+  y?: number;
+  accuracy?: number;
+  message?: string;
+};
+
 const STATUS_FILTER_OPTIONS = [
   "Not started",
   "In progress",
@@ -360,6 +395,83 @@ export default function HomeRoute() {
   const mapViewportRef = useRef<HTMLDivElement>(null);
   const mapShellRef = useRef<HTMLDivElement>(null);
   const [mapAspect, setMapAspect] = useState(3877 / 2009);
+  const [geo, setGeo] = useState<GeoState>({ status: "off" });
+  const geoWatchId = useRef<number | null>(null);
+  const geoCentered = useRef(false);
+  const stopGeo = () => {
+    if (geoWatchId.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(geoWatchId.current);
+    }
+    geoWatchId.current = null;
+    geoCentered.current = false;
+    setGeo({ status: "off" });
+  };
+  const toggleGeo = () => {
+    if (geoWatchId.current !== null) {
+      stopGeo();
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeo({
+        status: "error",
+        message: "This browser does not support location.",
+      });
+      return;
+    }
+    setGeo({ status: "locating", message: "Finding your location..." });
+    geoWatchId.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        const { x, y } = geoToMapPercent(latitude, longitude);
+        if (x < 0 || x > 100 || y < 0 || y > 100) {
+          setGeo({
+            status: "outside",
+            accuracy,
+            message: "You are outside the area covered by this map.",
+          });
+          return;
+        }
+        setGeo({ status: "ok", x, y, accuracy });
+        const viewport = mapViewportRef.current;
+        const content = mapContentRef.current;
+        if (!geoCentered.current && viewport && content) {
+          geoCentered.current = true;
+          viewport.scrollLeft =
+            (x / 100) * content.clientWidth - viewport.clientWidth / 2;
+          viewport.scrollTop =
+            (y / 100) * content.clientHeight - viewport.clientHeight / 2;
+        }
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          if (geoWatchId.current !== null)
+            navigator.geolocation.clearWatch(geoWatchId.current);
+          geoWatchId.current = null;
+          setGeo({
+            status: "denied",
+            message:
+              "Location permission was denied. Allow location for this site in your browser settings, then tap My location again.",
+          });
+        } else {
+          setGeo({
+            status: "error",
+            message:
+              error.code === error.TIMEOUT
+                ? "Location request timed out. Still trying."
+                : "Your location is not available right now.",
+          });
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 },
+    );
+  };
+  useEffect(
+    () => () => {
+      if (geoWatchId.current !== null && navigator.geolocation)
+        navigator.geolocation.clearWatch(geoWatchId.current);
+    },
+    [],
+  );
   const toggleMapFullscreen = (next: boolean) => {
     setMapFullscreen(next);
     try {
@@ -2486,6 +2598,17 @@ export default function HomeRoute() {
                         </button>
                         <button
                           type="button"
+                          aria-pressed={geo.status !== "off"}
+                          onClick={toggleGeo}
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold ${geo.status === "ok" ? "border-blue-600 bg-blue-600 text-white" : geo.status === "off" ? "border-slate-200 bg-white text-slate-600 hover:bg-slate-100" : "border-blue-300 bg-blue-50 text-blue-700"}`}
+                        >
+                          <IconCurrentLocation size={14} aria-hidden="true" />
+                          {geo.status === "off"
+                            ? "My location"
+                            : "Stop location"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => toggleMapFullscreen(!mapFullscreen)}
                           className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-[#142b3c] px-3 py-1.5 text-[11px] font-semibold text-white"
                         >
@@ -2574,6 +2697,7 @@ export default function HomeRoute() {
                             style={{
                               width: `${mapZoom}%`,
                               touchAction: "none",
+                              containerType: "inline-size",
                             }}
                             onClickCapture={(event) => {
                               if (touchSuppressClick.current) {
@@ -2659,6 +2783,30 @@ export default function HomeRoute() {
                                   </svg>
                                 );
                               })}
+                            {geo.status === "ok" &&
+                              geo.x !== undefined &&
+                              geo.y !== undefined && (
+                                <div
+                                  aria-label="Your location"
+                                  className="pointer-events-none absolute z-20"
+                                  style={{
+                                    left: `${geo.x}%`,
+                                    top: `${geo.y}%`,
+                                  }}
+                                >
+                                  {geo.accuracy ? (
+                                    <div
+                                      className="absolute rounded-full border border-blue-500/60 bg-blue-500/15"
+                                      style={{
+                                        width: `${(2 * geo.accuracy) / GEO_FIT.metersPerPctX}cqw`,
+                                        height: `${(2 * geo.accuracy) / GEO_FIT.metersPerPctX}cqw`,
+                                        transform: "translate(-50%, -50%)",
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-600 shadow-[0_0_0_2px_rgba(37,99,235,0.35)]" />
+                                </div>
+                              )}
                             {mapLabels.map((label) => (
                               <div
                                 key={`label-${label.id}`}
