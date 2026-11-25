@@ -210,6 +210,37 @@ function displayBuildingLine(buildingNumber: string, name: string) {
 
 const MAP_ZOOM_STEP = 5;
 
+// Wrap a map label into a compact centred block of short lines.
+function wrapMapLabel(text: string, maxChars = 16, maxLines = 3) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) current = word;
+    else if (current.length + 1 + word.length <= maxChars)
+      current += ` ${word}`;
+    else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = `${kept[maxLines - 1].slice(0, maxChars - 1)}…`;
+    return kept.join("\n");
+  }
+  return lines.join("\n");
+}
+function labelBox(text: string, fontSize: number) {
+  const lines = text.split("\n");
+  const longest = Math.max(...lines.map((line) => line.length));
+  return {
+    w: longest * fontSize * 0.62 + 10,
+    h: lines.length * fontSize * 1.25 + 2,
+  };
+}
+
 // lon/lat -> site-map percent. Web Mercator tile coordinates at zoom 18
 // (X, Y), then a fitted affine transform (rotation, scale, offset) found from
 // the KML building points against their positions on the map image.
@@ -1040,6 +1071,14 @@ export default function HomeRoute() {
       const centerX = (minX + maxX) / 2;
       const centerY = (minY + maxY) / 2;
       const isSelected = building.id === selectedMapBuildingId;
+      const fullText = wrapMapLabel(
+        fullLabel(building),
+        16,
+        isSelected ? 8 : 3,
+      );
+      const longestLine = Math.max(
+        ...fullText.split("\n").map((line) => line.length),
+      );
       let fontSize = baseFont;
       const polyWidthPx = ((maxX - minX) / 100) * contentWidth;
       const polyHeightPx = ((maxY - minY) / 100) * contentHeight;
@@ -1048,7 +1087,7 @@ export default function HomeRoute() {
           fontSize,
           Math.max(
             11,
-            (polyWidthPx * 1.6) / Math.max(3, building.name.length * 0.52),
+            (polyWidthPx * 1.6) / Math.max(3, longestLine * 0.52),
             polyHeightPx * 1.2,
           ),
         );
@@ -1065,7 +1104,7 @@ export default function HomeRoute() {
         return [
           {
             id: building.id,
-            name: fullLabel(building),
+            name: fullText,
             centerX,
             centerY,
             fontSize,
@@ -1074,13 +1113,12 @@ export default function HomeRoute() {
           },
         ];
       }
-      const variants = [fullLabel(building), shortName(building)].filter(
+      const variants = [fullText, shortName(building)].filter(
         (name, index, all) => all.indexOf(name) === index,
       );
       const candidates: ReturnType<typeof pick>[] = [];
       for (const name of variants) {
-        const w = name.length * fontSize * 0.62 + 10;
-        const h = fontSize * 1.4;
+        const { w, h } = labelBox(name, fontSize);
         candidates.push(pick(name, centerX, centerY, 0, 0));
         candidates.push(
           pick(name, centerX, centerY, 0, polyHeightPx / 2 + h / 2),
@@ -1102,8 +1140,7 @@ export default function HomeRoute() {
         rect: (typeof placed)[number];
       } | null = null;
       for (const c of candidates) {
-        const w = c.name.length * fontSize * 0.62 + 10;
-        const h = fontSize * 1.4;
+        const { w, h } = labelBox(c.name, fontSize);
         const px = (c.x / 100) * contentWidth + c.offsetX;
         const py = (c.y / 100) * contentHeight + c.offsetY;
         const rect = {
@@ -1126,12 +1163,11 @@ export default function HomeRoute() {
       }
       if (!chosen) {
         if (!isSelected) return [];
-        const w = building.name.length * fontSize * 0.62 + 10;
-        const h = fontSize * 1.4;
+        const { w, h } = labelBox(fullText, fontSize);
         const px = (centerX / 100) * contentWidth;
         const py = (centerY / 100) * contentHeight;
         chosen = {
-          name: fullLabel(building),
+          name: fullText,
           left: px,
           top: py,
           rect: {
@@ -1146,7 +1182,7 @@ export default function HomeRoute() {
       return [
         {
           id: building.id,
-          name: isSelected ? fullLabel(building) : chosen.name,
+          name: isSelected ? fullText : chosen.name,
           centerX: (chosen.left / contentWidth) * 100,
           centerY: (chosen.top / contentHeight) * 100,
           fontSize,
@@ -2825,7 +2861,7 @@ export default function HomeRoute() {
                                   event.stopPropagation();
                                   selectMapBuilding(label.id);
                                 }}
-                                className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer whitespace-nowrap rounded px-1 text-center font-bold leading-tight ${label.selected ? "z-20 bg-white/75" : "z-10"}`}
+                                className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer whitespace-pre rounded px-1 text-center font-bold leading-[1.25] ${label.selected ? "z-20 bg-white/75" : "z-10"}`}
                                 style={{
                                   left: `${label.centerX}%`,
                                   top: `${label.centerY}%`,
