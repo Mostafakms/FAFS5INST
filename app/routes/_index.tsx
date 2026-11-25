@@ -2173,6 +2173,13 @@ export default function HomeRoute() {
                 className="h-24 w-24 object-contain"
               />
             </div>
+            <div
+              data-no-translate=""
+              dir="ltr"
+              className="mt-2 text-center text-[10px] font-medium text-slate-400"
+            >
+              Designed By eng. Mostafa Nasser
+            </div>
           </div>
         </div>
         <button
