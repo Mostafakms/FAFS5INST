@@ -419,6 +419,17 @@ const AR_TEXT: Record<string, string> = {
     "اسم المستخدم مستخدم بالفعل. اختر اسمًا آخر.",
   "Unable to create account.": "تعذر إنشاء الحساب.",
   Language: "اللغة",
+  "Fire alarm & firefighting alarm system implementation":
+    "تنفيذ نظام إنذار الحريق وإنذار مكافحة الحريق",
+  "Active scope": "النطاق الفعال",
+  buildings: "مبنى",
+  "active buildings": "مبنى فعال",
+  "View activities": "عرض الأنشطة",
+  "Map assignment": "تحديد على الخريطة",
+  Actions: "الإجراءات",
+  Action: "الإجراء",
+  Updated: "آخر تحديث",
+  "not updated": "لم يتم التحديث",
   "Choose the language of the app. Your choice is saved on this device.":
     "اختر لغة التطبيق. يتم حفظ اختيارك على هذا الجهاز.",
   "Close menu": "إغلاق القائمة",
@@ -436,6 +447,17 @@ const AR_TEXT: Record<string, string> = {
   "Optional update note": "ملاحظة اختيارية على التحديث",
 };
 const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^(\d+) completed$/, (m) => `${m[1]} مكتمل`],
+  [/^(\d+) not started$/, (m) => `${m[1]} لم يبدأ`],
+  [
+    /^(\d+) buildings · ([\d.]+)% overall$/,
+    (m) => `${m[1]} مبنى · ${m[2]}% إجمالي`,
+  ],
+  [/^(\d+) preserved records$/, (m) => `${m[1]} سجل محفوظ`],
+  [/^(\d+) active activities$/, (m) => `${m[1]} نشاط فعال`],
+  [/^(\d+) recent changes$/, (m) => `${m[1]} تغييرات حديثة`],
+  [/^Edit (.+)$/, (m) => `تعديل ${m[1]}`],
+  [/^Delete (.+)$/, (m) => `حذف ${m[1]}`],
   [
     /^Your location, accuracy about (\d+) m\.$/,
     (m) => `موقعك، الدقة حوالي ${m[1]} متر.`,
