@@ -484,6 +484,10 @@ const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
     (m) => `موقعك، الدقة حوالي ${m[1]} متر.`,
   ],
   [
+    /^Delayed and paused buildings \((\d+)\)$/,
+    (m) => `المباني المتأخرة والمتوقفة (${m[1]})`,
+  ],
+  [
     /^Password must be at least 12 characters \(you entered (\d+)\)\.$/,
     (m) => `كلمة المرور يجب ألا تقل عن 12 حرفًا (أدخلت ${m[1]}).`,
   ],
@@ -508,6 +512,23 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  "Weekly meeting report": "تقرير اجتماع الأسبوع",
+  "Print / Save as PDF": "طباعة / حفظ PDF",
+  "Download Excel (CSV)": "تحميل Excel (CSV)",
+  "Report downloaded.": "تم تحميل التقرير.",
+  "Could not create the report file.": "تعذّر إنشاء ملف التقرير.",
+  "Overall progress": "نسبة الإنجاز الإجمالية",
+  "Average progress": "متوسط التقدم",
+  "No delayed or paused buildings.": "لا توجد مبانٍ متأخرة أو متوقفة.",
+  "No reason entered": "لم يُدخل سبب",
+  "Building status report": "تقرير حالة المباني",
+  "Every active building with status, progress and reason":
+    "كل مبنى نشط مع الحالة والتقدم والسبب",
+  "Delayed and paused report": "تقرير المتأخر والمتوقف",
+  "Buildings that need attention, with the reason":
+    "المباني التي تحتاج متابعة مع السبب",
+  "Open Buildings list": "فتح قائمة المباني",
+  "View the live building table": "عرض جدول المباني الحالي",
   Finished: "مكتمل",
   "In progress": "قيد التنفيذ",
   Current: "حتى الآن",
@@ -3630,35 +3651,7 @@ export default function HomeRoute() {
               )}
 
               {view === "Reports" && (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <ReportCard
-                    title="Active buildings"
-                    subtitle="Scope-filtered progress summary"
-                    value={`${data.activeCount} buildings · ${pct(data.overall)} overall`}
-                    onClick={() => setView("Buildings")}
-                  />
-                  <ReportCard
-                    title="Removed from scope"
-                    subtitle="Separate list; excluded from project totals"
-                    value={`${data.removedCount} preserved records`}
-                    onClick={() => {
-                      setSearch("Removed from scope");
-                      setView("Buildings");
-                    }}
-                  />
-                  <ReportCard
-                    title="Activity summary"
-                    subtitle="Progress against configured activity weights"
-                    value={`${data.activities.length} active activities`}
-                    onClick={() => setView("Activities")}
-                  />
-                  <ReportCard
-                    title="Update history"
-                    subtitle="Recent progress changes and responsible users"
-                    value={`${data.history.length} recent changes`}
-                    onClick={() => setView("Progress history")}
-                  />
-                </div>
+                <ReportsView data={data} onOpen={setView} />
               )}
 
               {view === "Progress history" && (
@@ -4653,6 +4646,348 @@ function Legend({ color, label }: { color: string; label: string }) {
       <span className={`h-2 w-2 rounded-full ${color}`} />
       {label}
     </span>
+  );
+}
+
+const REPORT_STATUS_ORDER = [
+  "Not started",
+  "In progress",
+  "Hold",
+  "Delayed",
+  "Finished",
+];
+
+function csvCell(value: string | number) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const body = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob(["\ufeff" + body], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function reportDateStamp() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function ReportsView({
+  data,
+  onOpen,
+}: {
+  data: DashboardData;
+  onOpen: (view: string) => void;
+}) {
+  const [notice, setNotice] = useState("");
+  const stamp = reportDateStamp();
+  const active = data.buildings.filter((b) => !isRemoved(b));
+  const removed = data.buildings.filter((b) => isRemoved(b));
+  const byNumber = (a: Building, b: Building) =>
+    displayBuildingNumber(a.buildingNumber, a.name).localeCompare(
+      displayBuildingNumber(b.buildingNumber, b.name),
+      undefined,
+      { numeric: true },
+    );
+  const statusRows = REPORT_STATUS_ORDER.map((status) => {
+    const list = active.filter((b) => buildingStatus(b) === status);
+    const avg = list.length
+      ? list.reduce((sum, b) => sum + b.progress, 0) / list.length
+      : 0;
+    return { status, count: list.length, avg };
+  });
+  const attention = active
+    .filter((b) => ["Hold", "Delayed"].includes(buildingStatus(b)))
+    .sort((a, b) => {
+      const sa = buildingStatus(a) === "Delayed" ? 0 : 1;
+      const sb = buildingStatus(b) === "Delayed" ? 0 : 1;
+      return sa - sb || byNumber(a, b);
+    });
+  const buildingRow = (b: Building) => [
+    displayBuildingNumber(b.buildingNumber, b.name),
+    splitBuildingName(b.name).title,
+    statusLabel(buildingStatus(b)),
+    b.progress.toFixed(1),
+    b.relativeWeight,
+    b.statusReason || "",
+    mostRecentUpdate(b),
+  ];
+  const buildingHead = [
+    "Number",
+    "Building",
+    "Status",
+    "Progress %",
+    "Weight",
+    "Reason",
+    "Last update",
+  ];
+  const run = (fn: () => void) => {
+    try {
+      fn();
+      setNotice("Report downloaded.");
+    } catch {
+      setNotice("Could not create the report file.");
+    }
+    setTimeout(() => setNotice(""), 4000);
+  };
+  const downloads: {
+    title: string;
+    subtitle: string;
+    value: string;
+    file: string;
+    make: () => (string | number)[][];
+  }[] = [
+    {
+      title: "Building status report",
+      subtitle: "Every active building with status, progress and reason",
+      value: `${active.length} buildings`,
+      file: `building-status-${stamp}.csv`,
+      make: () => [
+        buildingHead,
+        ...[...active].sort(byNumber).map(buildingRow),
+      ],
+    },
+    {
+      title: "Delayed and paused report",
+      subtitle: "Buildings that need attention, with the reason",
+      value: `${attention.length} buildings`,
+      file: `delayed-paused-${stamp}.csv`,
+      make: () => [buildingHead, ...attention.map(buildingRow)],
+    },
+    {
+      title: "Activity summary",
+      subtitle: "Progress against configured activity weights",
+      value: `${data.activities.length} activities`,
+      file: `activity-summary-${stamp}.csv`,
+      make: () => [
+        ["Activity", "Weight", "Average progress %"],
+        ...data.activities.map((a) => [
+          a.name,
+          a.weight,
+          (
+            (active.length
+              ? active.reduce(
+                  (sum, b) =>
+                    sum +
+                    (b.activities.find((x) => x.id === a.id)?.progress ?? 0),
+                  0,
+                ) / active.length
+              : 0) || 0
+          ).toFixed(1),
+        ]),
+      ],
+    },
+    {
+      title: "Update history",
+      subtitle: "Recent progress changes and responsible users",
+      value: `${data.history.length} recent changes`,
+      file: `update-history-${stamp}.csv`,
+      make: () => [
+        [
+          "Date",
+          "Number",
+          "Building",
+          "Activity",
+          "From %",
+          "To %",
+          "Changed by",
+          "Note",
+        ],
+        ...data.history.map((h) => [
+          new Date(h.changedAt).toISOString().slice(0, 16).replace("T", " "),
+          displayBuildingNumber(h.buildingNumber, h.buildingName),
+          splitBuildingName(h.buildingName).title,
+          h.activityName,
+          h.previousProgress,
+          h.newProgress,
+          h.changedBy,
+          h.note,
+        ]),
+      ],
+    },
+    {
+      title: "Removed from scope",
+      subtitle: "Separate list; excluded from project totals",
+      value: `${removed.length} preserved records`,
+      file: `removed-from-scope-${stamp}.csv`,
+      make: () => [
+        ["Number", "Building", "Reason"],
+        ...[...removed]
+          .sort(byNumber)
+          .map((b) => [
+            displayBuildingNumber(b.buildingNumber, b.name),
+            splitBuildingName(b.name).title,
+            b.statusReason || "",
+          ]),
+      ],
+    },
+  ];
+  const weeklyCsv = () => {
+    const rows: (string | number)[][] = [
+      ["Weekly meeting report", stamp],
+      ["Overall progress %", data.overall.toFixed(1)],
+      [],
+      ["Status", "Buildings", "Average progress %"],
+      ...statusRows.map((r) => [
+        statusLabel(r.status),
+        r.count,
+        r.avg.toFixed(1),
+      ]),
+      [],
+      ["Delayed and paused buildings"],
+      buildingHead,
+      ...attention.map(buildingRow),
+    ];
+    downloadCsv(`weekly-meeting-report-${stamp}.csv`, rows);
+  };
+  return (
+    <div className="space-y-5">
+      {notice && (
+        <div
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800"
+        >
+          {notice}
+        </div>
+      )}
+      <div
+        id="weekly-report"
+        className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold text-[#1c3041]">
+              Weekly meeting report
+            </div>
+            <div className="mt-1 text-xs text-slate-400" dir="ltr">
+              Amreya Petroleum Refining Company · FAFS · {stamp}
+            </div>
+          </div>
+          <div className="flex gap-2 print:hidden">
+            <button
+              onClick={() => window.print()}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#142b3c] px-3.5 text-xs font-semibold text-white shadow-sm"
+            >
+              <IconDownload size={15} />
+              Print / Save as PDF
+            </button>
+            <button
+              onClick={() => run(weeklyCsv)}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-semibold text-slate-600 shadow-sm"
+            >
+              <IconDownload size={15} />
+              Download Excel (CSV)
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 text-xs font-semibold text-slate-500">
+          Overall progress
+        </div>
+        <div className="text-2xl font-bold text-[#142636]" dir="ltr">
+          {pct(data.overall)}
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-start text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-400">
+                <th className="py-2 text-start font-semibold">Status</th>
+                <th className="py-2 text-start font-semibold">Buildings</th>
+                <th className="py-2 text-start font-semibold">
+                  Average progress
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {statusRows.map((r) => (
+                <tr key={r.status} className="border-b border-slate-100">
+                  <td className="py-2 font-semibold text-slate-700">
+                    {statusLabel(r.status)}
+                  </td>
+                  <td className="py-2" dir="ltr">
+                    <span className="block text-start">{r.count}</span>
+                  </td>
+                  <td className="py-2" dir="ltr">
+                    <span className="block text-start">{pct(r.avg)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-5 text-xs font-bold text-[#1c3041]">
+          {`Delayed and paused buildings (${attention.length})`}
+        </div>
+        {attention.length === 0 ? (
+          <div className="mt-2 text-xs text-slate-400">
+            No delayed or paused buildings.
+          </div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {attention.map((b) => (
+              <div
+                key={b.id}
+                className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-800" dir="ltr">
+                    {displayBuildingLine(b.buildingNumber, b.name)}
+                  </span>
+                  <span
+                    className={`font-semibold ${buildingStatus(b) === "Delayed" ? "text-red-700" : "text-amber-700"}`}
+                  >
+                    {statusLabel(buildingStatus(b))} ·{" "}
+                    <span dir="ltr">{pct(b.progress)}</span>
+                  </span>
+                </div>
+                <div className="mt-1 text-slate-500">
+                  {b.statusReason || "No reason entered"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 print:hidden">
+        {downloads.map((d) => (
+          <div
+            key={d.title}
+            className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="text-sm font-bold text-[#1c3041]">{d.title}</div>
+            <div className="mt-1 text-xs text-slate-400">{d.subtitle}</div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-[#335a72]">
+                {d.value}
+              </span>
+              <button
+                onClick={() => run(() => downloadCsv(d.file, d.make()))}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                <IconDownload size={14} />
+                Download Excel (CSV)
+              </button>
+            </div>
+          </div>
+        ))}
+        <ReportCard
+          title="Open Buildings list"
+          subtitle="View the live building table"
+          value={`${data.activeCount} buildings · ${pct(data.overall)} overall`}
+          onClick={() => onOpen("Buildings")}
+        />
+      </div>
+    </div>
   );
 }
 
