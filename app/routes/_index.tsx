@@ -1498,25 +1498,43 @@ export default function HomeRoute() {
   async function createManagedUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setUserFeedback("");
+    if (!/^[a-zA-Z0-9._-]{3,32}$/.test(newUsername.trim())) {
+      setUserFeedback(
+        "Username must be 3 to 32 characters: letters, numbers, dot, dash or underscore only (no spaces).",
+      );
+      return;
+    }
+    if (newUserPassword.length < 12) {
+      setUserFeedback(
+        `Password must be at least 12 characters (you entered ${newUserPassword.length}).`,
+      );
+      return;
+    }
     try {
       const response = await fetch("/_agent-native/auth/register", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          email: `${newUsername.toLowerCase()}@aprc.invalid`,
+          email: `${newUsername.trim().toLowerCase()}@aprc.invalid`,
           name: newDisplayName,
           password: newUserPassword,
           callbackURL: "/",
         }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.ok)
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        const serverMessage =
+          typeof result?.error === "string" ? result.error : "";
         throw new Error(
-          "Unable to create account. Check the username and password.",
+          /already|exists/i.test(serverMessage)
+            ? "That username is already taken. Choose a different username."
+            : serverMessage ||
+                `Unable to create account (error ${response.status}).`,
         );
+      }
       createUserMutation.mutate({
-        username: newUsername,
+        username: newUsername.trim(),
         displayName: newDisplayName,
         role: newUserRole,
       });
@@ -1663,10 +1681,10 @@ export default function HomeRoute() {
                 />
               </label>
               <label className="text-xs font-semibold text-slate-600 sm:col-span-2">
-                Initial password
+                Initial password (at least 12 characters)
                 <input
                   required
-                  minLength={8}
+                  minLength={12}
                   type="password"
                   autoComplete="new-password"
                   value={newUserPassword}
@@ -3115,10 +3133,10 @@ export default function HomeRoute() {
                           />
                         </label>
                         <label className="text-[11px] font-semibold text-slate-600">
-                          Initial password
+                          Initial password (at least 12 characters)
                           <input
                             required
-                            minLength={8}
+                            minLength={12}
                             maxLength={128}
                             type="password"
                             autoComplete="new-password"
