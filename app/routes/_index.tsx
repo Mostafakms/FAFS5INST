@@ -474,7 +474,7 @@ export default function HomeRoute() {
         }
       },
       (error) => {
-        if (error.code === error.PERMISSION_DENIED) {
+        if (error.code === 1) {
           if (geoWatchId.current !== null)
             navigator.geolocation.clearWatch(geoWatchId.current);
           geoWatchId.current = null;
@@ -487,7 +487,7 @@ export default function HomeRoute() {
           setGeo({
             status: "error",
             message:
-              error.code === error.TIMEOUT
+              error.code === 3
                 ? "Location request timed out. Still trying."
                 : "Your location is not available right now.",
           });
