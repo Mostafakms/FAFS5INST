@@ -483,6 +483,11 @@ const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
     /^Your location, accuracy about (\d+) m\.$/,
     (m) => `موقعك، الدقة حوالي ${m[1]} متر.`,
   ],
+  [/^Delayed buildings \((\d+)\)$/, (m) => `المباني المتأخرة (${m[1]})`],
+  [/^Paused buildings \((\d+)\)$/, (m) => `المباني المتوقفة (${m[1]})`],
+  [/^In progress buildings \((\d+)\)$/, (m) => `المباني قيد التنفيذ (${m[1]})`],
+  [/^Finished buildings \((\d+)\)$/, (m) => `المباني المكتملة (${m[1]})`],
+  [/^Report date: (.+)$/, (m) => `تاريخ التقرير: ${m[1]}`],
   [/^(\d+) buildings$/, (m) => `${m[1]} مبنى`],
   [/^(\d+) activities$/, (m) => `${m[1]} نشاطًا`],
   [
@@ -514,6 +519,7 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  "No buildings in this group.": "لا توجد مبانٍ في هذه المجموعة.",
   "Weekly meeting report": "تقرير اجتماع الأسبوع",
   "Print / Save as PDF": "طباعة / حفظ PDF",
   "Download Excel (CSV)": "تحميل Excel (CSV)",
@@ -4835,6 +4841,22 @@ function ReportsView({
       ],
     },
   ];
+  const WEEKLY_GROUPS = [
+    { title: "Delayed buildings", statuses: ["Delayed"] },
+    { title: "Paused buildings", statuses: ["Hold"] },
+    { title: "In progress buildings", statuses: ["In progress"] },
+    { title: "Finished buildings", statuses: ["Finished"] },
+  ];
+  const weeklyList = (statuses: string[]) =>
+    active.filter((b) => statuses.includes(buildingStatus(b))).sort(byNumber);
+  const activityNames = data.activities.map((a) => a.name);
+  const detailHead = [...buildingHead, ...activityNames.map((n) => `${n} %`)];
+  const detailRow = (b: Building) => [
+    ...buildingRow(b),
+    ...data.activities.map((a) =>
+      (b.activities.find((x) => x.id === a.id)?.progress ?? 0).toFixed(0),
+    ),
+  ];
   const weeklyCsv = () => {
     const rows: (string | number)[][] = [
       ["Weekly meeting report", stamp],
@@ -4847,9 +4869,15 @@ function ReportsView({
         r.avg.toFixed(1),
       ]),
       [],
-      ["Delayed and paused buildings"],
-      buildingHead,
-      ...attention.map(buildingRow),
+      ...WEEKLY_GROUPS.flatMap((group) => {
+        const list = weeklyList(group.statuses);
+        return [
+          [],
+          [`${group.title} (${list.length})`],
+          detailHead,
+          ...list.map(detailRow),
+        ];
+      }),
     ];
     downloadCsv(`weekly-meeting-report-${stamp}.csv`, rows);
   };
@@ -4873,7 +4901,13 @@ function ReportsView({
               Weekly meeting report
             </div>
             <div className="mt-1 text-xs text-slate-400" dir="ltr">
-              Amreya Petroleum Refining Company · FAFS · {stamp}
+              Amreya Petroleum Refining Company · FAFS
+            </div>
+            <div
+              className="mt-1 text-xs font-semibold text-slate-600"
+              dir="ltr"
+            >
+              {`Report date: ${stamp}`}
             </div>
           </div>
           <div className="flex gap-2 print:hidden">
@@ -4927,38 +4961,66 @@ function ReportsView({
             </tbody>
           </table>
         </div>
-        <div className="mt-5 text-xs font-bold text-[#1c3041]">
-          {`Delayed and paused buildings (${attention.length})`}
-        </div>
-        {attention.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-400">
-            No delayed or paused buildings.
-          </div>
-        ) : (
-          <div className="mt-2 space-y-2">
-            {attention.map((b) => (
-              <div
-                key={b.id}
-                className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-800" dir="ltr">
-                    {displayBuildingLine(b.buildingNumber, b.name)}
-                  </span>
-                  <span
-                    className={`font-semibold ${buildingStatus(b) === "Delayed" ? "text-red-700" : "text-amber-700"}`}
-                  >
-                    {statusLabel(buildingStatus(b))} ·{" "}
-                    <span dir="ltr">{pct(b.progress)}</span>
-                  </span>
-                </div>
-                <div className="mt-1 text-slate-500">
-                  {b.statusReason || "No reason entered"}
-                </div>
+        {WEEKLY_GROUPS.map((group) => {
+          const list = weeklyList(group.statuses);
+          return (
+            <div key={group.title} className="mt-6">
+              <div className="break-after-avoid text-xs font-bold text-[#1c3041]">
+                {`${group.title} (${list.length})`}
               </div>
-            ))}
-          </div>
-        )}
+              {list.length === 0 ? (
+                <div className="mt-2 text-xs text-slate-400">
+                  No buildings in this group.
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {list.map((b) => (
+                    <div
+                      key={b.id}
+                      className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span
+                          className="font-semibold text-slate-800"
+                          dir="ltr"
+                        >
+                          {displayBuildingLine(b.buildingNumber, b.name)}
+                        </span>
+                        <span
+                          className={`font-semibold ${buildingStatus(b) === "Delayed" ? "text-red-700" : buildingStatus(b) === "Hold" ? "text-amber-700" : buildingStatus(b) === "Finished" ? "text-emerald-700" : "text-slate-700"}`}
+                        >
+                          {statusLabel(buildingStatus(b))} ·{" "}
+                          <span dir="ltr">{pct(b.progress)}</span>
+                        </span>
+                      </div>
+                      {b.statusReason && (
+                        <div className="mt-1 text-slate-500">
+                          {b.statusReason}
+                        </div>
+                      )}
+                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-4">
+                        {b.activities.map((act) => (
+                          <div
+                            key={act.id}
+                            className="flex items-baseline justify-between gap-2"
+                          >
+                            <span className="text-slate-500">{act.name}</span>
+                            <span
+                              className="font-semibold text-slate-700"
+                              dir="ltr"
+                            >
+                              {act.progress.toFixed(0)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="grid gap-4 md:grid-cols-2 print:hidden">
         {downloads.map((d) => (
