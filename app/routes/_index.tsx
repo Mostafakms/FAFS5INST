@@ -210,6 +210,259 @@ function displayBuildingLine(buildingNumber: string, name: string) {
 
 const MAP_ZOOM_STEP = 5;
 
+type AppLang = "en" | "ar";
+const LANG_KEY = "fafs-lang";
+// Arabic UI text. Keys are the exact English UI strings. Building names,
+// activity names, numbers and user-entered notes are data and stay as stored.
+const AR_TEXT: Record<string, string> = {
+  "Project /": "المشروع /",
+  Project: "المشروع",
+  System: "النظام",
+  Settings: "الإعدادات",
+  "Project settings": "إعدادات المشروع",
+  "Project configuration is read from the database.":
+    "إعدادات المشروع تُقرأ من قاعدة البيانات.",
+  "Project workspace": "مساحة المشروع",
+  "APRC • Alexandria": "APRC • الإسكندرية",
+  "Project Control": "التحكم في المشروع",
+  "Fire & safety systems": "أنظمة الحريق والسلامة",
+  "Sign out": "تسجيل الخروج",
+  "Install app": "تثبيت التطبيق",
+  "LIVE PROJECT": "مشروع حي",
+  "Amreya Refinery": "مصفاة العامرية",
+  "FAFS implementation": "تنفيذ نظام FAFS",
+  "Amreya Petroleum Refining Company": "شركة العامرية لتكرير البترول",
+  "Fire Alarm & Firefighting Alarm System":
+    "نظام إنذار الحريق وإنذار مكافحة الحريق",
+  "FAFS project overview": "نظرة عامة على مشروع FAFS",
+  "Export report": "تصدير التقرير",
+  Dashboard: "لوحة المتابعة",
+  "Site map": "خريطة الموقع",
+  Buildings: "المباني",
+  Building: "المبنى",
+  Activities: "الأنشطة",
+  Reports: "التقارير",
+  "Progress history": "سجل التقدم",
+  "Checking project setup…": "جارٍ التحقق من إعداد المشروع…",
+  "Checking sign-in…": "جارٍ التحقق من تسجيل الدخول…",
+  "Loading project records…": "جارٍ تحميل سجلات المشروع…",
+  Retry: "إعادة المحاولة",
+  "Setup status unavailable": "حالة الإعداد غير متاحة",
+  "Project data could not be loaded. Sign in with an authorized project account and retry.":
+    "تعذر تحميل بيانات المشروع. سجّل الدخول بحساب مصرّح له وأعد المحاولة.",
+  "Overall completion": "نسبة الإنجاز الكلية",
+  Current: "الحالي",
+  "Activity progress": "تقدم الأنشطة",
+  "Average completion across active buildings":
+    "متوسط الإنجاز في المباني الفعالة",
+  "Building status": "حالة المباني",
+  "Active project scope": "نطاق المشروع الفعال",
+  "RECENTLY UPDATED": "آخر التحديثات",
+  "No progress updates recorded yet.": "لا توجد تحديثات تقدم مسجلة بعد.",
+  "Building progress": "تقدم المباني",
+  "Latest status across the project": "آخر حالة على مستوى المشروع",
+  "All buildings": "كل المباني",
+  All: "الكل",
+  "Add building": "إضافة مبنى",
+  Cancel: "إلغاء",
+  "Save all": "حفظ الكل",
+  Edit: "تعديل",
+  Weight: "الوزن",
+  "Facility map": "خريطة المنشأة",
+  "Status meanings": "معاني الحالات",
+  "Not started": "لم يبدأ",
+  "In progress": "جارٍ العمل",
+  Hold: "متوقف",
+  Delayed: "متأخر",
+  Finished: "منتهي",
+  "Removed from scope": "خارج النطاق",
+  "Removed from Scope": "خارج النطاق",
+  "Filter by status": "تصفية حسب الحالة",
+  "Work has not started. It can start anytime and nobody is blocking it.":
+    "العمل لم يبدأ. يمكن أن يبدأ في أي وقت ولا شيء يعطّله.",
+  "Work is currently underway on site.": "العمل جارٍ حاليًا في الموقع.",
+  "Paused on purpose after work started. Reason is required.":
+    "متوقف عمدًا بعد بدء العمل. السبب مطلوب.",
+  "Someone delayed or blocked the work. The reason is shown in Status reason and is required.":
+    "تم تأخير العمل أو تعطيله. السبب يظهر في سبب الحالة وهو مطلوب.",
+  "Replace site map": "استبدال خريطة الموقع",
+  "Upload site map": "رفع خريطة الموقع",
+  "Choose File": "اختيار ملف",
+  "No file chosen": "لم يتم اختيار ملف",
+  "Save map": "حفظ الخريطة",
+  "Uploading…": "جارٍ الرفع…",
+  "PNG, JPEG, WebP · max 16 MB":
+    "PNG أو JPEG أو WebP · الحد الأقصى 16 ميجابايت",
+  "Upload an approved facility map to place buildings.":
+    "ارفع خريطة المنشأة المعتمدة لتحديد أماكن المباني.",
+  "Search building name": "بحث باسم المبنى",
+  "Type a building name…": "اكتب اسم المبنى…",
+  "No matching buildings.": "لا توجد مبانٍ مطابقة.",
+  "Select building": "اختيار مبنى",
+  "Select a building…": "اختر مبنى…",
+  "Select a building to see its status and activities.":
+    "اختر مبنى لعرض حالته وأنشطته.",
+  "Draw polygon": "رسم المضلع",
+  "Clear polygon": "مسح المضلع",
+  Reset: "إعادة ضبط",
+  "Pan tool": "أداة التحريك",
+  "Pan: on": "التحريك: مفعل",
+  "My location": "موقعي",
+  "Stop location": "إيقاف الموقع",
+  "Full screen": "ملء الشاشة",
+  "Exit full screen": "إغلاق ملء الشاشة",
+  "Pan mode is on. Turn it off to draw a polygon.":
+    "وضع التحريك مفعل. أوقفه لرسم مضلع.",
+  "Click the map to add polygon vertices.":
+    "اضغط على الخريطة لإضافة نقاط المضلع.",
+  "Draw or clear its polygon on the map.": "ارسم أو امسح مضلعه على الخريطة.",
+  "Click at least 3 points on the map, then finish and save.":
+    "اضغط 3 نقاط على الأقل على الخريطة ثم أنهِ واحفظ.",
+  "No site map uploaded": "لم يتم رفع خريطة موقع",
+  "A Site Manager can upload a PNG, JPEG, or WebP facility map up to 16 MB. Building locations can be assigned after upload.":
+    "يمكن لمدير الموقع رفع خريطة المنشأة بصيغة PNG أو JPEG أو WebP حتى 16 ميجابايت. يمكن تحديد أماكن المباني بعد الرفع.",
+  "Finding your location...": "جارٍ تحديد موقعك...",
+  "You are outside the area covered by this map.":
+    "أنت خارج المنطقة التي تغطيها هذه الخريطة.",
+  "This browser does not support location.":
+    "هذا المتصفح لا يدعم تحديد الموقع.",
+  "Location permission was denied. Allow location for this site in your browser settings, then tap My location again.":
+    "تم رفض إذن الموقع. اسمح بالموقع لهذا الموقع من إعدادات المتصفح ثم اضغط «موقعي» مرة أخرى.",
+  "Location request timed out. Still trying.":
+    "انتهت مهلة طلب الموقع. ما زالت المحاولة جارية.",
+  "Your location is not available right now.": "موقعك غير متاح حاليًا.",
+  "Browse building records": "تصفح سجلات المباني",
+  "Search buildings": "بحث في المباني",
+  "Search number, name, type": "ابحث بالرقم أو الاسم أو النوع",
+  "No buildings match this search.": "لا توجد مبانٍ مطابقة لهذا البحث.",
+  "Assign on map": "تحديد على الخريطة",
+  "Most recent recorded activity updates": "أحدث تحديثات الأنشطة المسجلة",
+  "No progress history is available yet.": "لا يوجد سجل تقدم بعد.",
+  "Update history": "سجل التحديثات",
+  "Recent progress changes and responsible users":
+    "آخر تغييرات التقدم والمستخدمون المسؤولون",
+  "Active buildings": "المباني الفعالة",
+  "Preserved • excluded from totals": "محفوظة • غير محسوبة في الإجماليات",
+  "Separate list; excluded from project totals":
+    "قائمة منفصلة؛ غير محسوبة في إجماليات المشروع",
+  "Scope-filtered progress summary": "ملخص التقدم حسب النطاق",
+  "Activity summary": "ملخص الأنشطة",
+  "Progress against configured activity weights":
+    "التقدم مقابل أوزان الأنشطة المحددة",
+  "Activity weights determine each activity’s contribution to building progress.":
+    "أوزان الأنشطة تحدد مساهمة كل نشاط في تقدم المبنى.",
+  "Buildings removed from scope": "مبانٍ خارج النطاق",
+  "Configured activity weight total": "إجمالي أوزان الأنشطة",
+  "User management": "إدارة المستخدمين",
+  "Create accounts with a username and initial password. Email addresses are not required.":
+    "أنشئ حسابات باسم مستخدم وكلمة مرور مبدئية. لا حاجة لعنوان بريد إلكتروني.",
+  Username: "اسم المستخدم",
+  "Display name": "الاسم المعروض",
+  "Initial password (at least 12 characters)":
+    "كلمة المرور المبدئية (12 حرفًا على الأقل)",
+  Role: "الدور",
+  Supervisor: "مشرف",
+  Viewer: "مشاهد",
+  "Site Manager": "مدير الموقع",
+  "Create account": "إنشاء حساب",
+  "Creating…": "جارٍ الإنشاء…",
+  "Create Site Manager account": "إنشاء حساب مدير الموقع",
+  "Creating account…": "جارٍ إنشاء الحساب…",
+  Active: "فعال",
+  Inactive: "غير فعال",
+  Deactivate: "تعطيل",
+  "Deactivating…": "جارٍ التعطيل…",
+  "Only the provisioned Site Manager can create or manage project accounts.":
+    "فقط مدير الموقع المعيّن يمكنه إنشاء حسابات المشروع أو إدارتها.",
+  USERNAME: "اسم المستخدم",
+  "DISPLAY NAME": "الاسم المعروض",
+  ROLE: "الدور",
+  STATUS: "الحالة",
+  ACTION: "الإجراء",
+  "Building details and project weight": "تفاصيل المبنى ووزنه في المشروع",
+  "Building number": "رقم المبنى",
+  "Building name": "اسم المبنى",
+  Status: "الحالة",
+  "Reason (required)": "السبب (مطلوب)",
+  "Relative weight": "الوزن النسبي",
+  "Save building": "حفظ المبنى",
+  "Update activity progress": "تحديث تقدم النشاط",
+  "Progress updates are disabled for excluded buildings.":
+    "تحديث التقدم غير متاح للمباني خارج النطاق.",
+  "Progress saved": "تم حفظ التقدم",
+  "Progress values are validated and saved with history.":
+    "يتم التحقق من قيم التقدم وحفظها مع السجل.",
+  "Saving…": "جارٍ الحفظ…",
+  "Save progress": "حفظ التقدم",
+  Progress: "التقدم",
+  "Account created.": "تم إنشاء الحساب.",
+  "Polygon saved.": "تم حفظ المضلع.",
+  "Polygon cleared.": "تم مسح المضلع.",
+  "Activity weights saved.": "تم حفظ أوزان الأنشطة.",
+  "Progress saved and project totals recalculated.":
+    "تم حفظ التقدم وإعادة حساب إجماليات المشروع.",
+  "Relative weight must be greater than zero.":
+    "يجب أن يكون الوزن النسبي أكبر من صفر.",
+  "A reason is required for Hold and Delayed statuses.":
+    "السبب مطلوب لحالتي «متوقف» و«متأخر».",
+  "Enter a weight from 0 to 100% for every activity.":
+    "أدخل وزنًا من 0 إلى 100% لكل نشاط.",
+  "The site map must be 16 MB or smaller.":
+    "يجب ألا يتجاوز حجم خريطة الموقع 16 ميجابايت.",
+  "Unable to upload the site map.": "تعذر رفع خريطة الموقع.",
+  "Site map uploaded and saved.": "تم رفع خريطة الموقع وحفظها.",
+  "Username must be 3 to 32 characters: letters, numbers, dot, dash or underscore only (no spaces).":
+    "اسم المستخدم من 3 إلى 32 حرفًا: حروف إنجليزية وأرقام ونقطة وشرطة وشرطة سفلية فقط (بدون مسافات).",
+  "That username is already taken. Choose a different username.":
+    "اسم المستخدم مستخدم بالفعل. اختر اسمًا آخر.",
+  "Unable to create account.": "تعذر إنشاء الحساب.",
+  Language: "اللغة",
+  "Choose the language of the app. Your choice is saved on this device.":
+    "اختر لغة التطبيق. يتم حفظ اختيارك على هذا الجهاز.",
+  "Close menu": "إغلاق القائمة",
+  "Close navigation": "إغلاق التنقل",
+  "Open navigation": "فتح التنقل",
+  "Zoom out": "تصغير",
+  "Zoom in": "تكبير",
+  "Map zoom": "تكبير الخريطة",
+  "Your location": "موقعك",
+  "Building search results": "نتائج بحث المباني",
+  "Uploaded facility site map": "خريطة موقع المنشأة المرفوعة",
+  "Close building editor": "إغلاق محرر المبنى",
+  "Close details": "إغلاق التفاصيل",
+  "Activity progress percentage": "نسبة تقدم النشاط",
+  "Optional update note": "ملاحظة اختيارية على التحديث",
+};
+const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [
+    /^Your location, accuracy about (\d+) m\.$/,
+    (m) => `موقعك، الدقة حوالي ${m[1]} متر.`,
+  ],
+  [
+    /^Password must be at least 12 characters \(you entered (\d+)\)\.$/,
+    (m) => `كلمة المرور يجب ألا تقل عن 12 حرفًا (أدخلت ${m[1]}).`,
+  ],
+];
+function translateToArabic(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const lead = text.slice(0, text.indexOf(trimmed));
+  const trail = text.slice(lead.length + trimmed.length);
+  const normalized = trimmed.replace(/\s+/g, " ");
+  let out: string | undefined = AR_TEXT[normalized];
+  if (!out) {
+    for (const [pattern, fn] of AR_PATTERNS) {
+      const m = normalized.match(pattern);
+      if (m) {
+        out = fn(m);
+        break;
+      }
+    }
+  }
+  return out ? `${lead}${out}${trail}` : null;
+}
+const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
+
 // Wrap a map label into a compact centred block of short lines.
 function wrapMapLabel(text: string, maxChars = 16, maxLines = 3) {
   const words = text.split(/\s+/).filter(Boolean);
@@ -382,6 +635,101 @@ export default function HomeRoute() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [lang, setLang] = useState<AppLang>("en");
+  const translatedNodes = useRef(new Map<Node, { src: string; out: string }>());
+  const translatedAttrs = useRef(
+    new Map<Element, Record<string, { src: string; out: string }>>(),
+  );
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(LANG_KEY) === "ar") setLang("ar");
+    } catch {
+      // storage unavailable: stay on English
+    }
+  }, []);
+  const chooseLang = (next: AppLang) => {
+    setLang(next);
+    try {
+      window.localStorage.setItem(LANG_KEY, next);
+    } catch {
+      // storage unavailable: choice lasts for this visit only
+    }
+  };
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    const nodes = translatedNodes.current;
+    const attrs = translatedAttrs.current;
+    const doText = (node: Text) => {
+      const known = nodes.get(node);
+      if (known && node.data === known.out) return;
+      nodes.delete(node);
+      if (lang !== "ar") return;
+      const out = translateToArabic(node.data);
+      if (out && out !== node.data) {
+        nodes.set(node, { src: node.data, out });
+        node.data = out;
+      }
+    };
+    const doAttrs = (el: Element) => {
+      let rec = attrs.get(el);
+      for (const name of I18N_ATTRS) {
+        const value = el.getAttribute(name);
+        if (value === null) continue;
+        if (rec?.[name] && rec[name].out === value) continue;
+        if (rec?.[name]) delete rec[name];
+        if (lang !== "ar") continue;
+        const out = translateToArabic(value);
+        if (out && out !== value) {
+          rec = rec ?? {};
+          rec[name] = { src: value, out };
+          attrs.set(el, rec);
+          el.setAttribute(name, out);
+        }
+      }
+    };
+    const walk = (root: Node) => {
+      if (root.nodeType === Node.TEXT_NODE) {
+        doText(root as Text);
+        return;
+      }
+      if (root.nodeType !== Node.ELEMENT_NODE) return;
+      const el = root as Element;
+      if (el.closest("[data-no-translate]")) return;
+      doAttrs(el);
+      for (const child of Array.from(el.childNodes)) walk(child);
+    };
+    if (lang !== "ar") {
+      for (const [node, { src, out }] of Array.from(nodes)) {
+        if ((node as Text).data === out) (node as Text).data = src;
+      }
+      nodes.clear();
+      for (const [el, rec] of Array.from(attrs)) {
+        for (const [name, { src, out }] of Object.entries(rec)) {
+          if (el.getAttribute(name) === out) el.setAttribute(name, src);
+        }
+      }
+      attrs.clear();
+      return;
+    }
+    walk(document.body);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") doText(record.target as Text);
+        else if (record.type === "attributes")
+          doAttrs(record.target as Element);
+        else record.addedNodes.forEach((added) => walk(added));
+      }
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: I18N_ATTRS,
+    });
+    return () => observer.disconnect();
+  }, [lang]);
   const [updateActivity, setUpdateActivity] = useState("");
   const [updateValue, setUpdateValue] = useState("");
   const [updateNote, setUpdateNote] = useState("");
@@ -2752,6 +3100,7 @@ export default function HomeRoute() {
                         )}
                         <div
                           ref={mapViewportRef}
+                          dir="ltr"
                           style={{ touchAction: "none" }}
                           className={`absolute inset-0 overflow-auto ${mapFullscreen ? "flex rounded-none border-0 bg-slate-950" : "rounded-xl border border-slate-200 bg-slate-50"} ${mapDragging ? "cursor-grabbing" : mapPanMode ? "cursor-grab" : mapDrawing && data.userRole === "Site Manager" ? "cursor-crosshair" : ""}`}
                         >
@@ -3067,6 +3416,34 @@ export default function HomeRoute() {
                     <p className="mt-1 text-xs text-slate-500">
                       Project configuration is read from the database.
                     </p>
+                  </div>
+                  <div className="mb-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
+                    <div className="text-xs font-bold text-[#1c3041]">
+                      Language
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choose the language of the app. Your choice is saved on
+                      this device.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      {(
+                        [
+                          ["en", "English"],
+                          ["ar", "العربية"],
+                        ] as [AppLang, string][]
+                      ).map(([code, name]) => (
+                        <button
+                          key={code}
+                          type="button"
+                          data-no-translate=""
+                          aria-pressed={lang === code}
+                          onClick={() => chooseLang(code)}
+                          className={`rounded-lg border px-4 py-2 text-xs font-semibold ${lang === code ? "border-[#142b3c] bg-[#142b3c] text-white" : "border-slate-200 bg-white text-slate-600"}`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {[
