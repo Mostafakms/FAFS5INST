@@ -743,7 +743,9 @@ export default function HomeRoute() {
   );
   useEffect(() => {
     try {
-      if (window.localStorage.getItem(LANG_KEY) === "ar") setLang("ar");
+      const saved = window.localStorage.getItem(LANG_KEY);
+      const device = (navigator.language || "").toLowerCase().startsWith("ar");
+      if (saved === "ar" || (saved === null && device)) setLang("ar");
     } catch {
       // storage unavailable: stay on English
     }
