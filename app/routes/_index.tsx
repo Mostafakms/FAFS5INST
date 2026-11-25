@@ -2229,7 +2229,7 @@ export default function HomeRoute() {
               <div className="sm:col-span-2">
                 <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   Role{" "}
-                  <strong className="ml-2 text-[#1c3041]">Site Manager</strong>
+                  <strong className="ms-2 text-[#1c3041]">Site Manager</strong>
                 </div>
                 {firstManagerFeedback && (
                   <p role="alert" className="mt-3 text-sm text-rose-700">
@@ -2614,7 +2614,7 @@ export default function HomeRoute() {
                               </span>
                               <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-600">
                                 {pct(activeActivityProgress(activity.id))}
-                                <span className="ml-2 font-normal text-slate-400">
+                                <span className="ms-2 font-normal text-slate-400">
                                   {Number(activity.weight)}%
                                 </span>
                               </span>
@@ -2794,7 +2794,7 @@ export default function HomeRoute() {
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
                     <h2 className="text-sm font-bold text-[#1c3041]">
                       All buildings{" "}
-                      <span className="ml-2 text-xs font-medium text-slate-400">
+                      <span className="ms-2 text-xs font-medium text-slate-400">
                         {filtered.length}
                       </span>
                     </h2>
@@ -3104,7 +3104,7 @@ export default function HomeRoute() {
                                 setMapBuildingSearch(event.target.value)
                               }
                               placeholder="Type a building name…"
-                              className="ml-2 h-9 w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-400"
+                              className="ms-2 h-9 max-w-full w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-400"
                             />
                           </label>
                           {mapBuildingSearch.trim() && (
@@ -3131,7 +3131,7 @@ export default function HomeRoute() {
                                     <span className="font-semibold">
                                       {splitBuildingName(building.name).title}
                                     </span>
-                                    <span className="ml-2 text-slate-400">
+                                    <span className="ms-2 text-slate-400">
                                       {displayBuildingNumber(
                                         building.buildingNumber,
                                         building.name,
@@ -3157,7 +3157,7 @@ export default function HomeRoute() {
                               setMapDrawing(false);
                               setMapFeedback("");
                             }}
-                            className="ml-2 h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
+                            className="ms-2 h-9 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
                           >
                             <option value="">Select a building…</option>
                             {data.buildings.map((building) => (
@@ -4417,7 +4417,7 @@ function BuildingTable({
                         building.buildingNumber,
                         building.name,
                       )}
-                      <span className="ml-2 font-medium text-slate-600">
+                      <span className="ms-2 font-medium text-slate-600">
                         {splitBuildingName(building.name).title}
                       </span>
                     </div>
