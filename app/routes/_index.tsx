@@ -2615,6 +2615,16 @@ export default function HomeRoute() {
                           <IconMaximize size={14} aria-hidden="true" />
                           {mapFullscreen ? "Exit full screen" : "Full screen"}
                         </button>
+                        {geo.status !== "off" && (
+                          <p
+                            role="status"
+                            className={`w-full text-[11px] ${geo.status === "denied" || geo.status === "error" || geo.status === "outside" ? "font-semibold text-red-600" : "text-blue-700"}`}
+                          >
+                            {geo.status === "ok"
+                              ? `Your location, accuracy about ${Math.round(geo.accuracy ?? 0)} m.`
+                              : (geo.message ?? "")}
+                          </p>
+                        )}
                       </div>
                       {mapFullscreen && (
                         <div className="shrink-0 bg-slate-50 px-2.5 pb-2.5">
