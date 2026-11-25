@@ -2618,7 +2618,14 @@ export default function HomeRoute() {
                               {t.type}
                             </span>
                             <span className="tabular-nums text-slate-600">
-                              {`${t.count} buildings · ${t.finished} finished`}
+                              <span className="me-3">
+                                <span>Buildings</span>{" "}
+                                <b dir="ltr">{t.count}</b>
+                              </span>
+                              <span>
+                                <span>Finished</span>{" "}
+                                <b dir="ltr">{t.finished}</b>
+                              </span>
                             </span>
                           </div>
                         ))}
