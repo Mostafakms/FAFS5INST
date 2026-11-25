@@ -343,7 +343,7 @@ export default function HomeRoute() {
       viewport.removeEventListener("touchend", onEnd);
       viewport.removeEventListener("touchcancel", onEnd);
     };
-  }, [view, mapFullscreen]);
+  }, [view, mapFullscreen, mapContentSize.width > 0]);
   useEffect(() => {
     if (!mapFullscreen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -634,8 +634,8 @@ export default function HomeRoute() {
       ].filter((name, index, all) => all.indexOf(name) === index);
       const candidates: ReturnType<typeof pick>[] = [];
       for (const name of variants) {
-        const w = name.length * fontSize * 0.56 + 8;
-        const h = fontSize * 1.3;
+        const w = name.length * fontSize * 0.62 + 10;
+        const h = fontSize * 1.4;
         candidates.push(pick(name, centerX, centerY, 0, 0));
         candidates.push(
           pick(name, centerX, centerY, 0, polyHeightPx / 2 + h / 2),
@@ -657,8 +657,8 @@ export default function HomeRoute() {
         rect: (typeof placed)[number];
       } | null = null;
       for (const c of candidates) {
-        const w = c.name.length * fontSize * 0.56 + 8;
-        const h = fontSize * 1.3;
+        const w = c.name.length * fontSize * 0.62 + 10;
+        const h = fontSize * 1.4;
         const px = (c.x / 100) * contentWidth + c.offsetX;
         const py = (c.y / 100) * contentHeight + c.offsetY;
         const rect = {
@@ -669,10 +669,10 @@ export default function HomeRoute() {
         };
         const collides = placed.some(
           (other) =>
-            rect.left < other.right + 1 &&
-            rect.right > other.left - 1 &&
-            rect.top < other.bottom + 1 &&
-            rect.bottom > other.top - 1,
+            rect.left < other.right + 2 &&
+            rect.right > other.left - 2 &&
+            rect.top < other.bottom + 2 &&
+            rect.bottom > other.top - 2,
         );
         if (!collides) {
           chosen = { name: c.name, left: px, top: py, rect };
@@ -681,8 +681,8 @@ export default function HomeRoute() {
       }
       if (!chosen) {
         if (!isSelected) return [];
-        const w = building.name.length * fontSize * 0.56 + 8;
-        const h = fontSize * 1.3;
+        const w = building.name.length * fontSize * 0.62 + 10;
+        const h = fontSize * 1.4;
         const px = (centerX / 100) * contentWidth;
         const py = (centerY / 100) * contentHeight;
         chosen = {
