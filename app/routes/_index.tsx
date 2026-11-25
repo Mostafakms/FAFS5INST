@@ -1483,7 +1483,9 @@ export default function HomeRoute() {
     const target = data?.buildings.find((b) => b.id === locateRequest.id);
     const points = target?.geometry?.points;
     if (!points || points.length < 3) return;
-    const timer = window.setTimeout(() => {
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
       const viewport = mapViewportRef.current;
       const content = mapContentRef.current;
       if (!viewport || !content) return;
@@ -1508,9 +1510,24 @@ export default function HomeRoute() {
       viewport.scrollLeft = cx * content.offsetWidth - viewport.clientWidth / 2;
       viewport.scrollTop =
         cy * content.offsetHeight - viewport.clientHeight / 2;
-      viewport.scrollIntoView({ block: "center", behavior: "smooth" });
-    }, 120);
-    return () => window.clearTimeout(timer);
+    };
+    let tries = 0;
+    const start = () => {
+      if (cancelled) return;
+      const img = mapContentRef.current?.querySelector("img");
+      if ((!img || !img.complete || !img.naturalWidth) && tries++ < 50) {
+        window.setTimeout(start, 100);
+        return;
+      }
+      run();
+      window.setTimeout(run, 350);
+      mapViewportRef.current?.scrollIntoView({ block: "center" });
+    };
+    const timer = window.setTimeout(start, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [locateRequest]);
   const mapLabels = useMemo(() => {
     const polygonArea = (building: Building) => {
