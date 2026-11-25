@@ -274,7 +274,7 @@ const AR_TEXT: Record<string, string> = {
   "Status meanings": "معاني الحالات",
   "Not started": "لم يبدأ",
   "In progress": "جارٍ العمل",
-  Hold: "متوقف",
+  Hold: "متوقف مؤقتًا",
   Delayed: "متأخر",
   Finished: "منتهي",
   "Removed from scope": "خارج النطاق",
@@ -405,7 +405,7 @@ const AR_TEXT: Record<string, string> = {
     "تم حفظ التقدم وإعادة حساب إجماليات المشروع.",
   "Relative weight must be greater than zero.":
     "يجب أن يكون الوزن النسبي أكبر من صفر.",
-  "A reason is required for Hold and Delayed statuses.":
+  "A reason is required for Paused and Delayed statuses.":
     "السبب مطلوب لحالتي «متوقف» و«متأخر».",
   "Enter a weight from 0 to 100% for every activity.":
     "أدخل وزنًا من 0 إلى 100% لكل نشاط.",
@@ -419,6 +419,11 @@ const AR_TEXT: Record<string, string> = {
     "اسم المستخدم مستخدم بالفعل. اختر اسمًا آخر.",
   "Unable to create account.": "تعذر إنشاء الحساب.",
   Language: "اللغة",
+  Paused: "متوقف مؤقتًا",
+  "Excluded from totals": "غير محسوبة في الإجماليات",
+  "No buildings": "لا توجد مبانٍ",
+  "Buildings per status and their average progress":
+    "عدد المباني في كل حالة ومتوسط تقدمها",
   "Fire alarm & firefighting alarm system implementation":
     "تنفيذ نظام إنذار الحريق وإنذار مكافحة الحريق",
   "Active scope": "النطاق الفعال",
@@ -447,6 +452,7 @@ const AR_TEXT: Record<string, string> = {
   "Optional update note": "ملاحظة اختيارية على التحديث",
 };
 const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^avg progress ([\d.]+)%$/, (m) => `متوسط التقدم ${m[1]}%`],
   [/^(\d+) completed$/, (m) => `${m[1]} مكتمل`],
   [/^(\d+) not started$/, (m) => `${m[1]} لم يبدأ`],
   [
@@ -602,7 +608,7 @@ function StatusFilterChips({
             }
             className={chip(active)}
           >
-            {status}
+            {statusLabel(status)}
             <span className="opacity-70">{counts[status] ?? 0}</span>
           </button>
         );
@@ -635,6 +641,7 @@ const STATUS_DEFINITIONS: { status: string; meaning: string }[] = [
 const pct = (value: number) => `${value.toFixed(1)}%`;
 const isRemoved = (building: Building) =>
   building.manualStatus === "Removed from scope";
+const statusLabel = (status: string) => (status === "Hold" ? "Paused" : status);
 const buildingStatus = (building: Building) =>
   building.manualStatus ??
   (building.progress >= 99.99
@@ -1583,7 +1590,7 @@ export default function HomeRoute() {
         (building) =>
           (statusFilter.length === 0 ||
             statusFilter.includes(buildingStatus(building))) &&
-          `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${building.statusReason}`
+          `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${statusLabel(buildingStatus(building))} ${building.statusReason}`
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
@@ -1597,6 +1604,20 @@ export default function HomeRoute() {
     }
     return counts;
   }, [data?.buildings]);
+  const statusStats = useMemo(() => {
+    const acc: Record<string, { count: number; sum: number }> = {};
+    for (const building of data?.buildings ?? []) {
+      const status = buildingStatus(building);
+      const entry = (acc[status] ??= { count: 0, sum: 0 });
+      entry.count += 1;
+      entry.sum += building.progress;
+    }
+    return acc;
+  }, [data?.buildings]);
+  const statusAvg = (status: string) => {
+    const entry = statusStats[status];
+    return entry && entry.count > 0 ? entry.sum / entry.count : 0;
+  };
   const filteredActive = filtered.filter((building) => !isRemoved(building));
   const activeActivityProgress = (activityId: string) => {
     const buildings =
@@ -1636,7 +1657,7 @@ export default function HomeRoute() {
       !buildingReasonDraft.trim()
     ) {
       setBuildingFeedback(
-        "A reason is required for Hold and Delayed statuses.",
+        "A reason is required for Paused and Delayed statuses.",
       );
       return;
     }
@@ -2306,7 +2327,7 @@ export default function HomeRoute() {
             <>
               {view === "Dashboard" && (
                 <>
-                  <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <section className="grid gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
                     <div className="relative overflow-hidden rounded-xl bg-[#142b3c] p-5 text-white shadow-[0_4px_16px_rgba(20,43,60,0.12)]">
                       <div className="absolute -right-5 -top-10 h-32 w-32 rounded-full border-[18px] border-white/[0.04]" />
                       <div className="flex items-center justify-between">
@@ -2337,27 +2358,72 @@ export default function HomeRoute() {
                         <span>{data.activeCount} buildings</span>
                       </div>
                     </div>
-                    <SummaryCard
-                      label="Active buildings"
-                      value={String(data.activeCount)}
-                      detail={`${data.completedCount} completed`}
-                      icon={<IconBuilding size={17} />}
-                      tone="blue"
-                    />
-                    <SummaryCard
-                      label="In progress"
-                      value={String(data.inProgressCount)}
-                      detail={`${data.notStartedCount} not started`}
-                      icon={<IconActivity size={17} />}
-                      tone="amber"
-                    />
-                    <SummaryCard
-                      label="Removed from scope"
-                      value={String(data.removedCount)}
-                      detail="Preserved • excluded from totals"
-                      icon={<IconArrowDownRight size={17} />}
-                      tone="slate"
-                    />
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                      {(
+                        [
+                          ["Finished", "bg-emerald-500", "text-emerald-700"],
+                          ["In progress", "bg-amber-500", "text-amber-700"],
+                          ["Hold", "bg-yellow-700", "text-yellow-800"],
+                          ["Delayed", "bg-red-600", "text-red-700"],
+                          ["Not started", "bg-slate-300", "text-slate-600"],
+                          [
+                            "Removed from scope",
+                            "bg-slate-500",
+                            "text-slate-600",
+                          ],
+                        ] as [string, string, string][]
+                      ).map(([status, dot, text]) => {
+                        const count = statusStats[status]?.count ?? 0;
+                        const avg = statusAvg(status);
+                        const removed = status === "Removed from scope";
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => {
+                              setStatusFilter([status]);
+                              setView("Buildings");
+                            }}
+                            className="rounded-xl border border-slate-200 bg-white p-4 text-start shadow-[0_2px_10px_rgba(17,33,49,0.025)] transition hover:border-slate-300"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`h-2.5 w-2.5 rounded-full ${dot}`}
+                              />
+                              <span
+                                className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${text}`}
+                              >
+                                {statusLabel(status)}
+                              </span>
+                            </div>
+                            <div className="mt-3 text-[30px] font-bold leading-none tracking-[-0.04em] text-[#192e3e]">
+                              {count}
+                            </div>
+                            {removed ? (
+                              <div className="mt-2 text-[11px] text-slate-400">
+                                Excluded from totals
+                              </div>
+                            ) : (
+                              <>
+                                <div className="mt-2 text-[11px] text-slate-500">
+                                  {count > 0
+                                    ? `avg progress ${avg.toFixed(1)}%`
+                                    : "No buildings"}
+                                </div>
+                                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                  <div
+                                    className={`h-full rounded-full ${dot}`}
+                                    style={{
+                                      width: `${Math.max(0, Math.min(100, avg))}%`,
+                                    }}
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </section>
 
                   <section className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
@@ -2406,56 +2472,73 @@ export default function HomeRoute() {
                             Building status
                           </h2>
                           <p className="mt-1 text-[11px] text-slate-400">
-                            Active project scope
+                            Buildings per status and their average progress
                           </p>
                         </div>
                         <IconFilter size={16} className="text-slate-400" />
                       </div>
                       <div className="space-y-4">
-                        {[
-                          ["Finished", data.completedCount, "bg-emerald-500"],
-                          ["In progress", data.inProgressCount, "bg-amber-500"],
-                          ["Not started", data.notStartedCount, "bg-slate-300"],
-                          ["Hold", data.holdCount, "bg-yellow-700"],
-                          ["Delayed", data.delayedCount, "bg-red-600"],
-                        ].map(([label, count, color]) => (
-                          <div
-                            key={String(label)}
-                            className="flex items-center gap-3"
-                          >
-                            <span className={`h-2 w-2 rounded-full ${color}`} />
-                            <span className="flex-1 text-xs text-slate-600">
-                              {label}
-                            </span>
-                            <span className="text-xs font-bold tabular-nums text-slate-700">
-                              {count}
-                            </span>
-                          </div>
-                        ))}
+                        {(
+                          [
+                            ["Finished", "bg-emerald-500"],
+                            ["In progress", "bg-amber-500"],
+                            ["Hold", "bg-yellow-700"],
+                            ["Delayed", "bg-red-600"],
+                            ["Not started", "bg-slate-300"],
+                          ] as [string, string][]
+                        ).map(([status, color]) => {
+                          const count = statusStats[status]?.count ?? 0;
+                          const avg = statusAvg(status);
+                          return (
+                            <div key={status}>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${color}`}
+                                />
+                                <span className="flex-1 text-xs text-slate-600">
+                                  {statusLabel(status)}
+                                </span>
+                                <span className="text-xs font-bold tabular-nums text-slate-700">
+                                  {count}
+                                </span>
+                                <span className="w-12 text-end text-[11px] tabular-nums text-slate-400">
+                                  {count > 0 ? `${avg.toFixed(0)}%` : "—"}
+                                </span>
+                              </div>
+                              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className={`h-full rounded-full ${color}`}
+                                  style={{
+                                    width: `${Math.max(0, Math.min(100, avg))}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="mt-6 flex h-2 overflow-hidden rounded-full bg-slate-100">
-                        {data.activeCount > 0 && (
-                          <>
+                      <div
+                        dir="ltr"
+                        className="mt-6 flex h-2 overflow-hidden rounded-full bg-slate-100"
+                      >
+                        {data.activeCount > 0 &&
+                          (
+                            [
+                              ["Finished", "bg-emerald-500"],
+                              ["In progress", "bg-amber-500"],
+                              ["Hold", "bg-yellow-700"],
+                              ["Delayed", "bg-red-600"],
+                              ["Not started", "bg-slate-300"],
+                            ] as [string, string][]
+                          ).map(([status, color]) => (
                             <div
-                              className="bg-emerald-500"
+                              key={status}
+                              className={color}
                               style={{
-                                width: `${(data.completedCount / data.activeCount) * 100}%`,
+                                width: `${((statusStats[status]?.count ?? 0) / data.activeCount) * 100}%`,
                               }}
                             />
-                            <div
-                              className="bg-amber-500"
-                              style={{
-                                width: `${(data.inProgressCount / data.activeCount) * 100}%`,
-                              }}
-                            />
-                            <div
-                              className="bg-slate-300"
-                              style={{
-                                width: `${(data.notStartedCount / data.activeCount) * 100}%`,
-                              }}
-                            />
-                          </>
-                        )}
+                          ))}
                       </div>
                       <div className="mt-6 border-t border-slate-100 pt-4">
                         <h3 className="mb-3 text-[11px] font-semibold text-slate-500">
@@ -2771,7 +2854,7 @@ export default function HomeRoute() {
                       <Legend color="bg-amber-500" label="In progress" />
                       <Legend color="bg-slate-300" label="Not started" />
                       <Legend color="bg-slate-500" label="Removed from scope" />
-                      <Legend color="bg-yellow-700" label="Hold" />
+                      <Legend color="bg-yellow-700" label="Paused" />
                       <Legend color="bg-red-600" label="Delayed" />
                       <div className="w-full">
                         <StatusFilterChips
@@ -2787,7 +2870,9 @@ export default function HomeRoute() {
                         <div className="mt-1 space-y-0.5 leading-snug">
                           {STATUS_DEFINITIONS.map((item) => (
                             <div key={item.status}>
-                              <span className="font-bold">{item.status}:</span>{" "}
+                              <span className="font-bold">
+                                {statusLabel(item.status)}:
+                              </span>{" "}
                               {item.meaning}
                             </div>
                           ))}
@@ -3106,7 +3191,9 @@ export default function HomeRoute() {
                                         ].stroke,
                                     }}
                                   />
-                                  {buildingStatus(selectedMapBuilding)}
+                                  {statusLabel(
+                                    buildingStatus(selectedMapBuilding),
+                                  )}
                                   <span>·</span>
                                   {selectedMapBuilding.progress.toFixed(1)}%
                                   overall
@@ -3732,7 +3819,7 @@ export default function HomeRoute() {
                           <option value="Removed from scope">
                             Removed from scope
                           </option>
-                          <option value="Hold">Hold</option>
+                          <option value="Hold">Paused</option>
                           <option value="Delayed">Delayed</option>
                         </select>
                       </label>
@@ -3746,7 +3833,9 @@ export default function HomeRoute() {
                                 : ""
                             }
                           >
-                            <span className="font-bold">{item.status}:</span>{" "}
+                            <span className="font-bold">
+                              {statusLabel(item.status)}:
+                            </span>{" "}
                             {item.meaning}
                           </div>
                         ))}
@@ -3835,7 +3924,7 @@ export default function HomeRoute() {
                         </h2>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
                           <span className="text-xs font-semibold text-slate-600">
-                            {buildingStatus(selected)}
+                            {statusLabel(buildingStatus(selected))}
                           </span>
                           {selected.statusReason && (
                             <span className="text-xs text-slate-400">
@@ -4160,7 +4249,7 @@ function BuildingTable({
                   <span
                     className={`text-[11px] ${buildingStatus(building) === "Finished" ? "font-semibold text-emerald-700" : buildingStatus(building) === "Hold" || buildingStatus(building) === "Delayed" ? "font-semibold text-amber-700" : "text-slate-500"}`}
                   >
-                    {buildingStatus(building)}
+                    {statusLabel(buildingStatus(building))}
                   </span>
                   {building.statusReason && (
                     <div className="mt-1 max-w-48 text-[10px] text-slate-400">
