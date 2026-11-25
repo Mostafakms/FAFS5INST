@@ -84,7 +84,7 @@ const loginHtml = `<!doctype html>
 <script>${signInJourneyInlineScript()}</script>
 <script>
 (function(){
-  var lang="en";try{lang=localStorage.getItem("fafs-lang")||"en";}catch(e){}
+  var lang="en";try{lang=localStorage.getItem("fafs-lang");}catch(e){}if(!lang)lang=((navigator.language||"").toLowerCase().indexOf("ar")===0)?"ar":"en";
   var shell=document.querySelector(".shell");
   var toggle=document.createElement("button");toggle.type="button";toggle.className="link";
   toggle.textContent=lang==="ar"?"English":"العربية";
