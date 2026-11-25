@@ -150,13 +150,52 @@ function splitBuildingName(name: string): {
   return { title: name, number: null };
 }
 
+// Plant numbers from the Shawqi progress sheet (SN/NO column) for buildings
+// whose stored name has no "(number)". Display only; stored data unchanged.
+const SHEET_NUMBER_BY_CODE: Record<string, string> = {
+  "B-001": "116/92",
+  "B-002": "117/93",
+  "B-003": "117/93",
+  "B-004": "113/89",
+  "B-005": "114/90",
+  "B-006": "1/1",
+  "B-007": "2/2",
+  "B-008": "112/88",
+  "B-010": "4/3",
+  "B-011": "9/6",
+  "B-012": "124/113",
+  "B-013": "126/115",
+  "B-014": "125/114",
+  "B-015": "110/86",
+  "B-016": "98/76",
+  "B-018": "99/77",
+  "B-019": "95/75",
+  "B-020": "57/43",
+  "B-021": "81/64",
+  "B-023": "45/33&46/33",
+  "B-024": "44/32",
+  "B-025": "50/37",
+  "B-026": "42/30",
+  "B-028": "32/24&33/25&37/25&36/25",
+  "B-030": "38/26",
+  "B-033": "39/27",
+  "B-061": "108/84",
+  "B-074": "80/63",
+};
+
 function displayBuildingNumber(buildingNumber: string, name: string) {
-  return splitBuildingName(name).number ?? buildingNumber;
+  const fromName = splitBuildingName(name).number;
+  if (fromName) return fromName;
+  const code = buildingNumber.trim();
+  if (SHEET_NUMBER_BY_CODE[code]) return SHEET_NUMBER_BY_CODE[code];
+  if (/^B-\d+$/i.test(code)) return "";
+  return code;
 }
 
 function displayBuildingLine(buildingNumber: string, name: string) {
-  const { title, number } = splitBuildingName(name);
-  return `${number ?? buildingNumber} · ${title}`;
+  const { title } = splitBuildingName(name);
+  const number = displayBuildingNumber(buildingNumber, name);
+  return number ? `${number} · ${title}` : title;
 }
 
 const MAP_ZOOM_STEP = 5;
@@ -576,13 +615,12 @@ export default function HomeRoute() {
       top: number;
       bottom: number;
     }[] = [];
-    const fullLabel = (name: string) => {
-      const { title, number } = splitBuildingName(name);
-      return number ? `${number} · ${title}` : name;
-    };
-    const shortName = (name: string) => {
-      const { title, number } = splitBuildingName(name);
+    const fullLabel = (item: Building) =>
+      displayBuildingLine(item.buildingNumber, item.name);
+    const shortName = (item: Building) => {
+      const number = displayBuildingNumber(item.buildingNumber, item.name);
       if (number) return number;
+      const { title } = splitBuildingName(item.name);
       return title.length > 14 ? `${title.slice(0, 13)}…` : title;
     };
     return buildings.flatMap((building) => {
@@ -619,7 +657,7 @@ export default function HomeRoute() {
         return [
           {
             id: building.id,
-            name: fullLabel(building.name),
+            name: fullLabel(building),
             centerX,
             centerY,
             fontSize,
@@ -628,10 +666,9 @@ export default function HomeRoute() {
           },
         ];
       }
-      const variants = [
-        fullLabel(building.name),
-        shortName(building.name),
-      ].filter((name, index, all) => all.indexOf(name) === index);
+      const variants = [fullLabel(building), shortName(building)].filter(
+        (name, index, all) => all.indexOf(name) === index,
+      );
       const candidates: ReturnType<typeof pick>[] = [];
       for (const name of variants) {
         const w = name.length * fontSize * 0.62 + 10;
@@ -686,7 +723,7 @@ export default function HomeRoute() {
         const px = (centerX / 100) * contentWidth;
         const py = (centerY / 100) * contentHeight;
         chosen = {
-          name: fullLabel(building.name),
+          name: fullLabel(building),
           left: px,
           top: py,
           rect: {
@@ -701,7 +738,7 @@ export default function HomeRoute() {
       return [
         {
           id: building.id,
-          name: isSelected ? fullLabel(building.name) : chosen.name,
+          name: isSelected ? fullLabel(building) : chosen.name,
           centerX: (chosen.left / contentWidth) * 100,
           centerY: (chosen.top / contentHeight) * 100,
           fontSize,
@@ -785,7 +822,7 @@ export default function HomeRoute() {
   function deleteBuilding(building: Building) {
     if (
       window.confirm(
-        `Permanently delete ${building.buildingNumber} · ${building.name} and all linked progress/history? This cannot be undone.`,
+        `Permanently delete ${displayBuildingLine(building.buildingNumber, building.name)} and all linked progress/history? This cannot be undone.`,
       )
     ) {
       setBuildingFeedback("");
@@ -2655,7 +2692,7 @@ export default function HomeRoute() {
                         <h2 className="text-lg font-bold text-[#152c3d]">
                           {buildingEditor === "new"
                             ? "Add building"
-                            : `Edit ${buildingEditor.buildingNumber}`}
+                            : `Edit ${splitBuildingName(buildingEditor.name).title}`}
                         </h2>
                         <p className="mt-1 text-xs text-slate-500">
                           Building details and project weight
@@ -3164,7 +3201,7 @@ function BuildingTable({
                   {onEdit && (
                     <button
                       type="button"
-                      aria-label={`Edit ${building.buildingNumber}`}
+                      aria-label={`Edit ${splitBuildingName(building.name).title}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         onEdit(building);
@@ -3177,7 +3214,7 @@ function BuildingTable({
                   {onDelete && (
                     <button
                       type="button"
-                      aria-label={`Delete ${building.buildingNumber}`}
+                      aria-label={`Delete ${splitBuildingName(building.name).title}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         onDelete(building);
