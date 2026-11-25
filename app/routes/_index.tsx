@@ -448,6 +448,9 @@ const AR_TEXT: Record<string, string> = {
   "Uploaded facility site map": "خريطة موقع المنشأة المرفوعة",
   "Close building editor": "إغلاق محرر المبنى",
   "Close details": "إغلاق التفاصيل",
+  "Locate building": "تحديد موقع المبنى",
+  "This building is not placed on the map yet.":
+    "لم يتم تحديد هذا المبنى على الخريطة بعد.",
   "Activity progress percentage": "نسبة تقدم النشاط",
   "Optional update note": "ملاحظة اختيارية على التحديث",
 };
@@ -865,6 +868,7 @@ export default function HomeRoute() {
   const [activityWeightEditing, setActivityWeightEditing] = useState(false);
   const [mapFile, setMapFile] = useState<File | null>(null);
   const [mapFeedback, setMapFeedback] = useState("");
+  const [locateRequest, setLocateRequest] = useState({ id: "", n: 0 });
   const [mapUploading, setMapUploading] = useState(false);
   const [selectedMapBuildingId, setSelectedMapBuildingId] = useState("");
   const [mapBuildingSearch, setMapBuildingSearch] = useState("");
@@ -1474,6 +1478,40 @@ export default function HomeRoute() {
   const selectedMapBuilding =
     data?.buildings.find((building) => building.id === selectedMapBuildingId) ??
     null;
+  useEffect(() => {
+    if (!locateRequest.n || view !== "Site map") return;
+    const target = data?.buildings.find((b) => b.id === locateRequest.id);
+    const points = target?.geometry?.points;
+    if (!points || points.length < 3) return;
+    const timer = window.setTimeout(() => {
+      const viewport = mapViewportRef.current;
+      const content = mapContentRef.current;
+      if (!viewport || !content) return;
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      const w = Math.max(Math.max(...xs) - Math.min(...xs), 0.5) / 100;
+      const h = Math.max(Math.max(...ys) - Math.min(...ys), 0.5) / 100;
+      const aspect = content.clientHeight / Math.max(content.clientWidth, 1);
+      const zx = (0.4 * 100) / w;
+      const zy =
+        (0.4 * viewport.clientHeight * 100) /
+        (h * aspect * viewport.clientWidth);
+      const zoom = Math.min(
+        MAP_ZOOM_MAX,
+        Math.max(MAP_ZOOM_MIN, Math.round(Math.min(zx, zy, 1200))),
+      );
+      flushSync(() => setMapZoom(zoom));
+      mapZoomRef.current = zoom;
+      if (zoomTextRef.current) zoomTextRef.current.textContent = `${zoom}%`;
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 200;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 200;
+      viewport.scrollLeft = cx * content.offsetWidth - viewport.clientWidth / 2;
+      viewport.scrollTop =
+        cy * content.offsetHeight - viewport.clientHeight / 2;
+      viewport.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [locateRequest]);
   const mapLabels = useMemo(() => {
     const polygonArea = (building: Building) => {
       const points = building.geometry!.points;
@@ -1903,6 +1941,20 @@ export default function HomeRoute() {
     if (event?.pointerType === "touch") return;
     mapPanStart.current = null;
     setMapDragging(false);
+  }
+
+  function locateBuilding(building: Building) {
+    setSelected(null);
+    setView("Site map");
+    setSelectedMapBuildingId(building.id);
+    setDraftPolygon([]);
+    setMapDrawing(false);
+    setMapFeedback(
+      building.geometry?.points.length
+        ? ""
+        : "This building is not placed on the map yet.",
+    );
+    setLocateRequest((n) => ({ id: building.id, n: n.n + 1 }));
   }
 
   function assignBuildingOnMap(building: Building) {
@@ -2709,6 +2761,7 @@ export default function HomeRoute() {
                     <BuildingTable
                       buildings={filtered.slice(0, 6)}
                       onOpen={openBuilding}
+                      onLocate={locateBuilding}
                       onAssignOnMap={
                         dashboard.data?.userRole === "Site Manager"
                           ? assignBuildingOnMap
@@ -2770,6 +2823,7 @@ export default function HomeRoute() {
                   <BuildingTable
                     buildings={filtered}
                     onOpen={openBuilding}
+                    onLocate={locateBuilding}
                     onAssignOnMap={
                       dashboard.data?.userRole === "Site Manager"
                         ? assignBuildingOnMap
@@ -4037,6 +4091,13 @@ export default function HomeRoute() {
                         </div>
                       </div>
                       <button
+                        type="button"
+                        onClick={() => locateBuilding(selected)}
+                        className="whitespace-nowrap rounded-lg bg-[#142b3c] px-3 py-2 text-[11px] font-semibold text-white hover:bg-[#1e3d54]"
+                      >
+                        Locate building
+                      </button>
+                      <button
                         onClick={() => setSelected(null)}
                         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
                         aria-label="Close details"
@@ -4240,10 +4301,12 @@ function BuildingTable({
   buildings,
   onOpen,
   onAssignOnMap,
+  onLocate,
   onEdit,
   onDelete,
 }: {
   buildings: Building[];
+  onLocate?: (building: Building) => void;
   onOpen: (building: Building) => void;
   onAssignOnMap?: (building: Building) => void;
   onEdit?: (building: Building) => void;
@@ -4377,6 +4440,18 @@ function BuildingTable({
                 {Number(building.relativeWeight).toFixed(2)}
               </td>
               <td className="px-4 py-3.5">
+                {onLocate && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onLocate(building);
+                    }}
+                    className="mb-1 flex items-center gap-1 whitespace-nowrap rounded-md border border-[#142b3c] bg-[#142b3c] px-2.5 py-1.5 text-[10px] font-semibold text-white hover:bg-[#1e3d54]"
+                  >
+                    Locate building
+                  </button>
+                )}
                 {onAssignOnMap && !building.geometry?.points.length && (
                   <button
                     type="button"
