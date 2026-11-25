@@ -206,6 +206,11 @@ export default function HomeRoute() {
   const [mapDragging, setMapDragging] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const mapViewportRef = useRef<HTMLDivElement>(null);
+  const mapContentRef = useRef<HTMLDivElement>(null);
+  const [mapContentSize, setMapContentSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const mapPanStart = useRef<{
     x: number;
     y: number;
@@ -248,6 +253,19 @@ export default function HomeRoute() {
     viewport.addEventListener("wheel", zoomWithWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", zoomWithWheel);
   }, [mapZoom, view]);
+  useEffect(() => {
+    const content = mapContentRef.current;
+    if (!content || view !== "Site map") return;
+    const measure = () =>
+      setMapContentSize({
+        width: content.clientWidth,
+        height: content.clientHeight,
+      });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [view, mapZoom, mapFullscreen]);
   const session = useSession();
   const dashboard = useActionQuery<DashboardData>(
     "get-project-dashboard",
@@ -393,6 +411,81 @@ export default function HomeRoute() {
   const selectedMapBuilding =
     data?.buildings.find((building) => building.id === selectedMapBuildingId) ??
     null;
+  const mapLabels = useMemo(() => {
+    const polygonArea = (building: Building) => {
+      const points = building.geometry!.points;
+      const xs = points.map((point) => point.x);
+      const ys = points.map((point) => point.y);
+      return (
+        (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
+      );
+    };
+    const buildings = (data?.buildings ?? [])
+      .filter((building) => (building.geometry?.points.length ?? 0) >= 3)
+      .sort((a, b) => {
+        if (a.id === selectedMapBuildingId) return -1;
+        if (b.id === selectedMapBuildingId) return 1;
+        return polygonArea(b) - polygonArea(a);
+      });
+    const { width: contentWidth, height: contentHeight } = mapContentSize;
+    const measured = contentWidth > 0 && contentHeight > 0;
+    const baseFont = Math.max(9, Math.min(26, 10 * Math.sqrt(mapZoom / 100)));
+    const placed: { left: number; right: number; top: number; bottom: number }[] =
+      [];
+    return buildings.flatMap((building) => {
+      const points = building.geometry!.points;
+      const minX = Math.min(...points.map((point) => point.x));
+      const maxX = Math.max(...points.map((point) => point.x));
+      const minY = Math.min(...points.map((point) => point.y));
+      const maxY = Math.max(...points.map((point) => point.y));
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const isSelected = building.id === selectedMapBuildingId;
+      let fontSize = baseFont;
+      if (measured) {
+        const polyWidthPx = ((maxX - minX) / 100) * contentWidth;
+        const polyHeightPx = ((maxY - minY) / 100) * contentHeight;
+        fontSize = Math.min(
+          fontSize,
+          (polyWidthPx * 1.15) / Math.max(8, building.name.length * 0.52),
+          polyHeightPx * 0.9,
+        );
+      }
+      if (isSelected) fontSize = Math.max(fontSize, 8);
+      if (fontSize < 8) return [];
+      fontSize = Math.round(fontSize * 10) / 10;
+      if (measured) {
+        const estimatedWidth = building.name.length * fontSize * 0.56 + 8;
+        const estimatedHeight = fontSize * 1.3;
+        const rect = {
+          left: (centerX / 100) * contentWidth - estimatedWidth / 2,
+          right: (centerX / 100) * contentWidth + estimatedWidth / 2,
+          top: (centerY / 100) * contentHeight - estimatedHeight / 2,
+          bottom: (centerY / 100) * contentHeight + estimatedHeight / 2,
+        };
+        const collides = placed.some(
+          (other) =>
+            rect.left < other.right + 2 &&
+            rect.right > other.left - 2 &&
+            rect.top < other.bottom + 2 &&
+            rect.bottom > other.top - 2,
+        );
+        if (!isSelected && collides) return [];
+        placed.push(rect);
+      }
+      return [
+        {
+          id: building.id,
+          name: building.name,
+          centerX,
+          centerY,
+          fontSize,
+          color: polygonColors[buildingStatus(building)].stroke,
+          selected: isSelected,
+        },
+      ];
+    });
+  }, [data?.buildings, mapContentSize, mapZoom, selectedMapBuildingId]);
   const mapBuildingSearchResults = useMemo(() => {
     const query = mapBuildingSearch.trim().toLowerCase();
     if (!query) return [];
@@ -1842,6 +1935,7 @@ export default function HomeRoute() {
                             <IconMaximize size={18} aria-hidden="true" />
                           </button>
                           <div
+                            ref={mapContentRef}
                             className="relative max-w-none shrink-0"
                             style={{ width: `${mapZoom}%` }}
                             onPointerDown={startMapPan}
@@ -1866,39 +1960,6 @@ export default function HomeRoute() {
                                 const points = building.geometry!.points;
                                 const colors =
                                   polygonColors[buildingStatus(building)];
-                                const minX = Math.min(
-                                  ...points.map((point) => point.x),
-                                );
-                                const maxX = Math.max(
-                                  ...points.map((point) => point.x),
-                                );
-                                const minY = Math.min(
-                                  ...points.map((point) => point.y),
-                                );
-                                const maxY = Math.max(
-                                  ...points.map((point) => point.y),
-                                );
-                                const centerX = (minX + maxX) / 2;
-                                const centerY = (minY + maxY) / 2;
-                                const polygonWidth = maxX - minX;
-                                const polygonHeight = maxY - minY;
-                                const labelWidth = Math.max(
-                                  6,
-                                  Math.min(36, polygonWidth * 0.82),
-                                );
-                                const labelHeight = Math.max(
-                                  4,
-                                  Math.min(18, polygonHeight * 0.68),
-                                );
-                                const fontSize = Math.max(
-                                  0.55,
-                                  Math.min(
-                                    1.5,
-                                    labelWidth /
-                                      Math.max(8, building.name.length * 0.48),
-                                    labelHeight * 0.24,
-                                  ),
-                                );
                                 return (
                                   <svg
                                     key={building.id}
@@ -1942,51 +2003,26 @@ export default function HomeRoute() {
                                   </svg>
                                 );
                               })}
-                            {data.buildings
-                              .filter(
-                                (building) =>
-                                  (building.geometry?.points.length ?? 0) >= 3,
-                              )
-                              .map((building) => {
-                                const points = building.geometry!.points;
-                                const minX = Math.min(
-                                  ...points.map((point) => point.x),
-                                );
-                                const maxX = Math.max(
-                                  ...points.map((point) => point.x),
-                                );
-                                const minY = Math.min(
-                                  ...points.map((point) => point.y),
-                                );
-                                const maxY = Math.max(
-                                  ...points.map((point) => point.y),
-                                );
-                                const colors =
-                                  polygonColors[buildingStatus(building)];
-                                return (
-                                  <div
-                                    key={`label-${building.id}`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      selectMapBuilding(building.id);
-                                    }}
-                                    className="pointer-events-auto absolute z-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden px-1 text-center font-bold leading-tight"
-                                    style={{
-                                      left: `${(minX + maxX) / 2}%`,
-                                      top: `${(minY + maxY) / 2}%`,
-                                      width: `${Math.max(6, Math.min(36, (maxX - minX) * 0.82))}%`,
-                                      maxHeight: `${Math.max(4, Math.min(18, (maxY - minY) * 0.72))}%`,
-                                      color: colors.stroke,
-                                      fontSize: "clamp(20px, 2.375vw, 32.5px)",
-                                      overflowWrap: "anywhere",
-                                      textShadow:
-                                        "0 0 2px rgba(255,255,255,0.95)",
-                                    }}
-                                  >
-                                    {building.name}
-                                  </div>
-                                );
-                              })}
+                            {mapLabels.map((label) => (
+                              <div
+                                key={`label-${label.id}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  selectMapBuilding(label.id);
+                                }}
+                                className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer whitespace-nowrap rounded px-1 text-center font-bold leading-tight ${label.selected ? "z-20 bg-white/75" : "z-10"}`}
+                                style={{
+                                  left: `${label.centerX}%`,
+                                  top: `${label.centerY}%`,
+                                  color: label.color,
+                                  fontSize: `${label.fontSize}px`,
+                                  textShadow:
+                                    "0 0 2px rgba(255,255,255,0.95), 0 0 4px rgba(255,255,255,0.85)",
+                                }}
+                              >
+                                {label.name}
+                              </div>
+                            ))}
                             {mapDrawing && draftPolygon.length > 0 && (
                               <svg
                                 viewBox="0 0 100 100"
@@ -2946,4 +2982,4 @@ function mostRecentUpdate(building: Building) {
     .sort();
   const date = dates[dates.length - 1];
   return date ? dateText(date) : "not updated";
-}
+    }
