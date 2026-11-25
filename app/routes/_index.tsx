@@ -137,7 +137,28 @@ const navItems = [
 ];
 
 const MAP_ZOOM_MIN = 100;
-const MAP_ZOOM_MAX = 900;
+const MAP_ZOOM_MAX = 2000;
+
+function splitBuildingName(name: string): {
+  title: string;
+  number: string | null;
+} {
+  const match = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (match && match[1].trim()) {
+    return { title: match[1].trim(), number: match[2].trim() };
+  }
+  return { title: name, number: null };
+}
+
+function displayBuildingNumber(buildingNumber: string, name: string) {
+  return splitBuildingName(name).number ?? buildingNumber;
+}
+
+function displayBuildingLine(buildingNumber: string, name: string) {
+  const { title, number } = splitBuildingName(name);
+  return `${number ?? buildingNumber} · ${title}`;
+}
+
 const MAP_ZOOM_STEP = 5;
 
 const pct = (value: number) => `${value.toFixed(1)}%`;
@@ -339,7 +360,7 @@ export default function HomeRoute() {
         MAP_ZOOM_MAX,
         Math.max(
           MAP_ZOOM_MIN,
-          mapZoom + (event.deltaY < 0 ? MAP_ZOOM_STEP : -MAP_ZOOM_STEP),
+          Math.round(mapZoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)),
         ),
       );
       if (nextZoom === mapZoom) return;
@@ -504,14 +525,13 @@ export default function HomeRoute() {
   const data = dashboard.data;
   useEffect(() => {
     let active = true;
-    
-        fetch("/setup-status", { credentials: "include" })
-              .then((response) => {
-                        if (!response.ok) throw new Error();
-                                return response.json();      })
-                                      .then((result: { needsSetup?: unknown }) => {
 
-    
+    fetch("/setup-status", { credentials: "include" })
+      .then((response) => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then((result: { needsSetup?: unknown }) => {
         if (!active || typeof result.needsSetup !== "boolean") return;
         setBootstrapStatus(result.needsSetup ? "setup" : "ready");
       })
@@ -536,7 +556,8 @@ export default function HomeRoute() {
       const xs = points.map((point) => point.x);
       const ys = points.map((point) => point.y);
       return (
-        (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))
+        (Math.max(...xs) - Math.min(...xs)) *
+        (Math.max(...ys) - Math.min(...ys))
       );
     };
     const buildings = (data?.buildings ?? [])
@@ -548,9 +569,22 @@ export default function HomeRoute() {
       });
     const { width: contentWidth, height: contentHeight } = mapContentSize;
     const measured = contentWidth > 0 && contentHeight > 0;
-    const baseFont = Math.max(9, Math.min(26, 10 * Math.sqrt(mapZoom / 100)));
-    const placed: { left: number; right: number; top: number; bottom: number }[] =
-      [];
+    const baseFont = Math.max(11, Math.min(26, 11 * Math.sqrt(mapZoom / 100)));
+    const placed: {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+    }[] = [];
+    const fullLabel = (name: string) => {
+      const { title, number } = splitBuildingName(name);
+      return number ? `${number} · ${title}` : name;
+    };
+    const shortName = (name: string) => {
+      const { title, number } = splitBuildingName(name);
+      if (number) return number;
+      return title.length > 14 ? `${title.slice(0, 13)}…` : title;
+    };
     return buildings.flatMap((building) => {
       const points = building.geometry!.points;
       const minX = Math.min(...points.map((point) => point.x));
@@ -561,43 +595,115 @@ export default function HomeRoute() {
       const centerY = (minY + maxY) / 2;
       const isSelected = building.id === selectedMapBuildingId;
       let fontSize = baseFont;
+      const polyWidthPx = ((maxX - minX) / 100) * contentWidth;
+      const polyHeightPx = ((maxY - minY) / 100) * contentHeight;
       if (measured) {
-        const polyWidthPx = ((maxX - minX) / 100) * contentWidth;
-        const polyHeightPx = ((maxY - minY) / 100) * contentHeight;
         fontSize = Math.min(
           fontSize,
-          (polyWidthPx * 2.0) / Math.max(3, building.name.length * 0.52),
-          polyHeightPx * 1.5,
+          Math.max(
+            11,
+            (polyWidthPx * 1.6) / Math.max(3, building.name.length * 0.52),
+            polyHeightPx * 1.2,
+          ),
         );
       }
-      if (isSelected) fontSize = Math.max(fontSize, 8);
-      if (fontSize < 8) return [];
       fontSize = Math.round(fontSize * 10) / 10;
-      if (measured) {
-        const estimatedWidth = building.name.length * fontSize * 0.56 + 8;
-        const estimatedHeight = fontSize * 1.3;
+      const pick = (
+        name: string,
+        x: number,
+        y: number,
+        offsetX: number,
+        offsetY: number,
+      ) => ({ name, x, y, offsetX, offsetY });
+      if (!measured) {
+        return [
+          {
+            id: building.id,
+            name: fullLabel(building.name),
+            centerX,
+            centerY,
+            fontSize,
+            color: polygonColors[buildingStatus(building)].stroke,
+            selected: isSelected,
+          },
+        ];
+      }
+      const variants = [
+        fullLabel(building.name),
+        shortName(building.name),
+      ].filter((name, index, all) => all.indexOf(name) === index);
+      const candidates: ReturnType<typeof pick>[] = [];
+      for (const name of variants) {
+        const w = name.length * fontSize * 0.56 + 8;
+        const h = fontSize * 1.3;
+        candidates.push(pick(name, centerX, centerY, 0, 0));
+        candidates.push(
+          pick(name, centerX, centerY, 0, polyHeightPx / 2 + h / 2),
+        );
+        candidates.push(
+          pick(name, centerX, centerY, 0, -(polyHeightPx / 2 + h / 2)),
+        );
+        candidates.push(
+          pick(name, centerX, centerY, polyWidthPx / 2 + w / 2, 0),
+        );
+        candidates.push(
+          pick(name, centerX, centerY, -(polyWidthPx / 2 + w / 2), 0),
+        );
+      }
+      let chosen: {
+        name: string;
+        left: number;
+        top: number;
+        rect: (typeof placed)[number];
+      } | null = null;
+      for (const c of candidates) {
+        const w = c.name.length * fontSize * 0.56 + 8;
+        const h = fontSize * 1.3;
+        const px = (c.x / 100) * contentWidth + c.offsetX;
+        const py = (c.y / 100) * contentHeight + c.offsetY;
         const rect = {
-          left: (centerX / 100) * contentWidth - estimatedWidth / 2,
-          right: (centerX / 100) * contentWidth + estimatedWidth / 2,
-          top: (centerY / 100) * contentHeight - estimatedHeight / 2,
-          bottom: (centerY / 100) * contentHeight + estimatedHeight / 2,
+          left: px - w / 2,
+          right: px + w / 2,
+          top: py - h / 2,
+          bottom: py + h / 2,
         };
         const collides = placed.some(
           (other) =>
-            rect.left < other.right + 2 &&
-            rect.right > other.left - 2 &&
-            rect.top < other.bottom + 2 &&
-            rect.bottom > other.top - 2,
+            rect.left < other.right + 1 &&
+            rect.right > other.left - 1 &&
+            rect.top < other.bottom + 1 &&
+            rect.bottom > other.top - 1,
         );
-        if (!isSelected && collides) return [];
-        placed.push(rect);
+        if (!collides) {
+          chosen = { name: c.name, left: px, top: py, rect };
+          break;
+        }
       }
+      if (!chosen) {
+        if (!isSelected) return [];
+        const w = building.name.length * fontSize * 0.56 + 8;
+        const h = fontSize * 1.3;
+        const px = (centerX / 100) * contentWidth;
+        const py = (centerY / 100) * contentHeight;
+        chosen = {
+          name: fullLabel(building.name),
+          left: px,
+          top: py,
+          rect: {
+            left: px - w / 2,
+            right: px + w / 2,
+            top: py - h / 2,
+            bottom: py + h / 2,
+          },
+        };
+      }
+      placed.push(chosen.rect);
       return [
         {
           id: building.id,
-          name: building.name,
-          centerX,
-          centerY,
+          name: isSelected ? fullLabel(building.name) : chosen.name,
+          centerX: (chosen.left / contentWidth) * 100,
+          centerY: (chosen.top / contentHeight) * 100,
           fontSize,
           color: polygonColors[buildingStatus(building)].stroke,
           selected: isSelected,
@@ -1469,7 +1575,10 @@ export default function HomeRoute() {
                                     if (building) openBuilding(building);
                                   }}
                                 >
-                                  {item.buildingNumber} · {item.buildingName}
+                                  {displayBuildingLine(
+                                    item.buildingNumber,
+                                    item.buildingName,
+                                  )}
                                 </button>
                                 <div className="mt-1 truncate text-[10px] text-slate-400">
                                   {item.activityName} · {item.changedBy}
@@ -1827,10 +1936,13 @@ export default function HomeRoute() {
                                     className="block w-full rounded-md px-2.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100"
                                   >
                                     <span className="font-semibold">
-                                      {building.name}
+                                      {splitBuildingName(building.name).title}
                                     </span>
                                     <span className="ml-2 text-slate-400">
-                                      {building.buildingNumber}
+                                      {displayBuildingNumber(
+                                        building.buildingNumber,
+                                        building.name,
+                                      )}
                                     </span>
                                   </button>
                                 ))
@@ -1857,7 +1969,10 @@ export default function HomeRoute() {
                             <option value="">Select a building…</option>
                             {data.buildings.map((building) => (
                               <option key={building.id} value={building.id}>
-                                {building.buildingNumber} · {building.name}
+                                {displayBuildingLine(
+                                  building.buildingNumber,
+                                  building.name,
+                                )}
                               </option>
                             ))}
                           </select>
@@ -1934,7 +2049,7 @@ export default function HomeRoute() {
                           type="button"
                           onClick={() =>
                             setMapZoom((zoom) =>
-                              Math.max(MAP_ZOOM_MIN, zoom - MAP_ZOOM_STEP),
+                              Math.max(MAP_ZOOM_MIN, Math.round(zoom / 1.25)),
                             )
                           }
                           disabled={mapZoom <= MAP_ZOOM_MIN}
@@ -1959,7 +2074,7 @@ export default function HomeRoute() {
                           type="button"
                           onClick={() =>
                             setMapZoom((zoom) =>
-                              Math.min(MAP_ZOOM_MAX, zoom + MAP_ZOOM_STEP),
+                              Math.min(MAP_ZOOM_MAX, Math.round(zoom * 1.25)),
                             )
                           }
                           disabled={mapZoom >= MAP_ZOOM_MAX}
@@ -2005,8 +2120,10 @@ export default function HomeRoute() {
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <div className="text-xs font-bold text-slate-800">
-                                  {selectedMapBuilding.buildingNumber} ·{" "}
-                                  {selectedMapBuilding.name}
+                                  {displayBuildingLine(
+                                    selectedMapBuilding.buildingNumber,
+                                    selectedMapBuilding.name,
+                                  )}
                                 </div>
                                 <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
                                   <span
@@ -2073,7 +2190,10 @@ export default function HomeRoute() {
                           <div
                             ref={mapContentRef}
                             className="relative max-w-none shrink-0"
-                            style={{ width: `${mapZoom}%`, touchAction: "none" }}
+                            style={{
+                              width: `${mapZoom}%`,
+                              touchAction: "none",
+                            }}
                             onClickCapture={(event) => {
                               if (touchSuppressClick.current) {
                                 touchSuppressClick.current = false;
@@ -2293,7 +2413,10 @@ export default function HomeRoute() {
                         >
                           <div>
                             <div className="text-xs font-semibold text-slate-700">
-                              {item.buildingNumber} · {item.buildingName}{" "}
+                              {displayBuildingLine(
+                                item.buildingNumber,
+                                item.buildingName,
+                              )}{" "}
                               <span className="font-normal text-slate-400">
                                 / {item.activityName}
                               </span>
@@ -2659,13 +2782,17 @@ export default function HomeRoute() {
                     <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-100 bg-white px-5 py-4 md:px-6">
                       <div>
                         <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                          Building {selected.buildingNumber}
+                          Building{" "}
+                          {displayBuildingNumber(
+                            selected.buildingNumber,
+                            selected.name,
+                          )}
                         </div>
                         <h2
                           id="building-heading"
                           className="text-lg font-bold tracking-tight text-[#152c3d]"
                         >
-                          {selected.name}
+                          {splitBuildingName(selected.name).title}
                         </h2>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
                           <span className="text-xs font-semibold text-slate-600">
@@ -2975,9 +3102,12 @@ function BuildingTable({
                   </div>
                   <div>
                     <div className="text-xs font-bold text-[#243c4e]">
-                      {building.buildingNumber}
+                      {displayBuildingNumber(
+                        building.buildingNumber,
+                        building.name,
+                      )}
                       <span className="ml-2 font-medium text-slate-600">
-                        {building.name}
+                        {splitBuildingName(building.name).title}
                       </span>
                     </div>
                     <div className="mt-1 text-[10px] text-slate-400">
@@ -3125,4 +3255,4 @@ function mostRecentUpdate(building: Building) {
     .sort();
   const date = dates[dates.length - 1];
   return date ? dateText(date) : "not updated";
-  }
+}
