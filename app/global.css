@@ -253,3 +253,20 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.34);
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #weekly-report,
+  #weekly-report * {
+    visibility: visible;
+  }
+  #weekly-report {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    border: 0;
+    box-shadow: none;
+  }
+}
