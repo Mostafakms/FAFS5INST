@@ -3562,7 +3562,7 @@ export default function HomeRoute() {
                           )}
                         {selectedMapBuilding && (
                           <section
-                            className="pointer-events-auto absolute right-3 top-3 z-30 max-h-[75%] w-[360px] max-w-[calc(100vw-1.5rem)] origin-top-right scale-75 overflow-y-auto rounded-lg border border-slate-200 bg-white/30 p-3 shadow-xl backdrop-blur-sm"
+                            className={`pointer-events-auto absolute right-3 top-3 z-30 ${parseFirefighting(selectedMapBuilding.notes).types.length > 0 ? "max-h-[58%]" : "max-h-[75%]"} w-[360px] max-w-[calc(100vw-1.5rem)] origin-top-right scale-75 overflow-y-auto rounded-lg border border-slate-200 bg-white/30 p-3 shadow-xl backdrop-blur-sm`}
                             onClick={(event) => event.stopPropagation()}
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3589,6 +3589,15 @@ export default function HomeRoute() {
                                   <span>·</span>
                                   Alarm{" "}
                                   {selectedMapBuilding.progress.toFixed(1)}%
+                                </div>
+                                <div className="mt-1 inline-block rounded-md bg-[#142b3c] px-2 py-0.5 text-[11px] font-semibold text-white">
+                                  Overall{" "}
+                                  <span dir="ltr">
+                                    {buildingOverallOf(
+                                      selectedMapBuilding,
+                                    ).toFixed(1)}
+                                    %
+                                  </span>
                                 </div>
                               </div>
                               <button
@@ -3619,28 +3628,6 @@ export default function HomeRoute() {
                                 ),
                               )}
                             </div>
-                            {(() => {
-                              const mff = parseFirefighting(
-                                selectedMapBuilding.notes,
-                              );
-                              const hasFf = mff.types.length > 0;
-                              return (
-                                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2 text-[11px]">
-                                  <span className="rounded-md bg-[#142b3c] px-2 py-1 font-semibold text-white">
-                                    Overall{" "}
-                                    {buildingOverallOf(
-                                      selectedMapBuilding,
-                                    ).toFixed(1)}
-                                    %
-                                  </span>
-                                  <span className="text-slate-500">
-                                    {hasFf
-                                      ? `${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting`
-                                      : "Alarm only"}
-                                  </span>
-                                </div>
-                              );
-                            })()}
                             {mapDrawing && (
                               <div className="mt-2 text-[10px] text-slate-400">
                                 Click at least 3 points on the map, then finish
