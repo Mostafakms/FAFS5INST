@@ -208,6 +208,65 @@ function displayBuildingLine(buildingNumber: string, name: string) {
 
 const MAP_ZOOM_STEP = 5;
 
+const STATUS_FILTER_OPTIONS = [
+  "Not started",
+  "In progress",
+  "Hold",
+  "Delayed",
+  "Finished",
+  "Removed from scope",
+];
+
+function StatusFilterChips({
+  value,
+  onChange,
+  counts,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  counts: Record<string, number>;
+}) {
+  const chip = (active: boolean) =>
+    `inline-flex h-8 items-center gap-1 rounded-full border px-3 text-[11px] font-semibold ${active ? "border-[#142b3c] bg-[#142b3c] text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`;
+  return (
+    <div
+      role="group"
+      aria-label="Filter by status"
+      className="flex flex-wrap gap-1.5"
+    >
+      <button
+        type="button"
+        aria-pressed={value.length === 0}
+        onClick={() => onChange([])}
+        className={chip(value.length === 0)}
+      >
+        All
+      </button>
+      {STATUS_FILTER_OPTIONS.map((status) => {
+        const active = value.includes(status);
+        return (
+          <button
+            key={status}
+            type="button"
+            aria-pressed={active}
+            onClick={() =>
+              onChange(
+                active
+                  ? value.filter((item) => item !== status)
+                  : [...value, status],
+              )
+            }
+            className={chip(active)}
+          >
+            {status}
+            <span className="opacity-70">{counts[status] ?? 0}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const STATUS_DEFINITIONS: { status: string; meaning: string }[] = [
   {
     status: "Not started",
@@ -250,6 +309,7 @@ export default function HomeRoute() {
   const [view, setView] = useState("Dashboard");
   const [selected, setSelected] = useState<Building | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [updateActivity, setUpdateActivity] = useState("");
   const [updateValue, setUpdateValue] = useState("");
@@ -626,6 +686,11 @@ export default function HomeRoute() {
     };
     const buildings = (data?.buildings ?? [])
       .filter((building) => (building.geometry?.points.length ?? 0) >= 3)
+      .filter(
+        (building) =>
+          statusFilter.length === 0 ||
+          statusFilter.includes(buildingStatus(building)),
+      )
       .sort((a, b) => {
         if (a.id === selectedMapBuildingId) return -1;
         if (b.id === selectedMapBuildingId) return 1;
@@ -772,7 +837,13 @@ export default function HomeRoute() {
         },
       ];
     });
-  }, [data?.buildings, mapContentSize, mapZoom, selectedMapBuildingId]);
+  }, [
+    data?.buildings,
+    mapContentSize,
+    mapZoom,
+    selectedMapBuildingId,
+    statusFilter,
+  ]);
   const mapBuildingSearchResults = useMemo(() => {
     const query = mapBuildingSearch.trim().toLowerCase();
     if (!query) return [];
@@ -782,13 +853,24 @@ export default function HomeRoute() {
   }, [data?.buildings, mapBuildingSearch]);
   const filtered = useMemo(
     () =>
-      (data?.buildings ?? []).filter((building) =>
-        `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${building.statusReason}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
+      (data?.buildings ?? []).filter(
+        (building) =>
+          (statusFilter.length === 0 ||
+            statusFilter.includes(buildingStatus(building))) &&
+          `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${building.statusReason}`
+            .toLowerCase()
+            .includes(search.toLowerCase()),
       ),
-    [data?.buildings, search],
+    [data?.buildings, search, statusFilter],
   );
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const building of data?.buildings ?? []) {
+      const status = buildingStatus(building);
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
+  }, [data?.buildings]);
   const filteredActive = filtered.filter((building) => !isRemoved(building));
   const activeActivityProgress = (activityId: string) => {
     const buildings =
@@ -1741,6 +1823,13 @@ export default function HomeRoute() {
                       {buildingFeedback}
                     </p>
                   )}
+                  <div className="border-b border-slate-100 px-5 py-3">
+                    <StatusFilterChips
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                      counts={statusCounts}
+                    />
+                  </div>
                   <BuildingTable
                     buildings={filtered}
                     onOpen={openBuilding}
@@ -1921,6 +2010,13 @@ export default function HomeRoute() {
                       <Legend color="bg-slate-500" label="Removed from scope" />
                       <Legend color="bg-yellow-700" label="Hold" />
                       <Legend color="bg-red-600" label="Delayed" />
+                      <div className="w-full">
+                        <StatusFilterChips
+                          value={statusFilter}
+                          onChange={setStatusFilter}
+                          counts={statusCounts}
+                        />
+                      </div>
                       <details className="w-full">
                         <summary className="cursor-pointer font-semibold text-slate-600">
                           Status meanings
@@ -2292,7 +2388,12 @@ export default function HomeRoute() {
                             {data.buildings
                               .filter(
                                 (building) =>
-                                  (building.geometry?.points.length ?? 0) >= 3,
+                                  (building.geometry?.points.length ?? 0) >=
+                                    3 &&
+                                  (statusFilter.length === 0 ||
+                                    statusFilter.includes(
+                                      buildingStatus(building),
+                                    )),
                               )
                               .map((building) => {
                                 const points = building.geometry!.points;
