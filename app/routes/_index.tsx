@@ -148,12 +148,13 @@ function splitBuildingName(rawName: string): {
   title: string;
   number: string | null;
 } {
-  const name = DISPLAY_NAME_OVERRIDES[rawName.trim()] ?? rawName;
-  const match = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  const override = (title: string) =>
+    DISPLAY_NAME_OVERRIDES[title.trim()] ?? title;
+  const match = rawName.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (match && match[1].trim()) {
-    return { title: match[1].trim(), number: match[2].trim() };
+    return { title: override(match[1].trim()), number: match[2].trim() };
   }
-  return { title: name, number: null };
+  return { title: override(rawName), number: null };
 }
 
 // Plant numbers from the Shawqi progress sheet (SN/NO column) for buildings
@@ -193,7 +194,7 @@ const SHEET_NUMBER_BY_CODE: Record<string, string> = {
 
 function displayBuildingNumber(buildingNumber: string, name: string) {
   const fromName = splitBuildingName(name).number;
-  if (fromName) return fromName;
+  if (fromName) return SHEET_NUMBER_BY_CODE[fromName] ?? fromName;
   const code = buildingNumber.trim();
   if (SHEET_NUMBER_BY_CODE[code]) return SHEET_NUMBER_BY_CODE[code];
   if (/^B-\d+$/i.test(code)) return "";
@@ -353,6 +354,27 @@ export default function HomeRoute() {
   const [mapDragging, setMapDragging] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const mapViewportRef = useRef<HTMLDivElement>(null);
+  const mapShellRef = useRef<HTMLDivElement>(null);
+  const [mapAspect, setMapAspect] = useState(3877 / 2009);
+  const toggleMapFullscreen = (next: boolean) => {
+    setMapFullscreen(next);
+    try {
+      if (next) {
+        void mapShellRef.current?.requestFullscreen?.().catch(() => {});
+      } else if (document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => {});
+      }
+    } catch {
+      // CSS overlay fallback already applies
+    }
+  };
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) setMapFullscreen(false);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
   const mapContentRef = useRef<HTMLDivElement>(null);
   const [mapContentSize, setMapContentSize] = useState({
     width: 0,
@@ -471,7 +493,7 @@ export default function HomeRoute() {
   useEffect(() => {
     if (!mapFullscreen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMapFullscreen(false);
+      if (event.key === "Escape") toggleMapFullscreen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -1980,9 +2002,10 @@ export default function HomeRoute() {
 
               {view === "Site map" && (
                 <div
+                  ref={mapShellRef}
                   className={
                     mapFullscreen
-                      ? "fixed inset-0 z-[100] flex h-screen flex-col overflow-hidden bg-slate-950"
+                      ? "fixed inset-0 z-[100] flex h-[100dvh] flex-col overflow-hidden bg-slate-950"
                       : "rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:p-7"
                   }
                 >
@@ -2214,7 +2237,7 @@ export default function HomeRoute() {
                           )}
                       </div>
                       <div
-                        className={`mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-2.5 ${mapFullscreen ? "hidden" : ""}`}
+                        className={`flex flex-wrap items-center gap-3 bg-slate-50 p-2.5 ${mapFullscreen ? "shrink-0 rounded-none" : "mt-4 rounded-lg"}`}
                       >
                         <button
                           type="button"
@@ -2278,10 +2301,29 @@ export default function HomeRoute() {
                         >
                           {mapPanMode ? "Pan: on" : "Pan tool"}
                         </button>
-                        {null}
+                        <button
+                          type="button"
+                          onClick={() => toggleMapFullscreen(!mapFullscreen)}
+                          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-[#142b3c] px-3 py-1.5 text-[11px] font-semibold text-white"
+                        >
+                          <IconMaximize size={14} aria-hidden="true" />
+                          {mapFullscreen ? "Exit full screen" : "Full screen"}
+                        </button>
                       </div>
+                      {mapFullscreen && (
+                        <div className="shrink-0 bg-slate-50 px-2.5 pb-2.5">
+                          <StatusFilterChips
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                            counts={statusCounts}
+                          />
+                        </div>
+                      )}
                       <div
-                        className={`relative ${mapFullscreen ? "min-h-0 flex-1" : "mt-3 h-[72vh]"}`}
+                        style={
+                          mapFullscreen ? undefined : { aspectRatio: mapAspect }
+                        }
+                        className={`relative ${mapFullscreen ? "min-h-0 flex-1" : "mt-3 max-h-[80vh] w-full"}`}
                       >
                         {selectedMapBuilding && (
                           <section
@@ -2343,21 +2385,6 @@ export default function HomeRoute() {
                           style={{ touchAction: "none" }}
                           className={`absolute inset-0 overflow-auto ${mapFullscreen ? "rounded-none border-0 bg-slate-950" : "rounded-xl border border-slate-200 bg-slate-50"} ${mapDragging ? "cursor-grabbing" : mapPanMode ? "cursor-grab" : mapDrawing && data.userRole === "Site Manager" ? "cursor-crosshair" : ""}`}
                         >
-                          <button
-                            type="button"
-                            aria-label={
-                              mapFullscreen
-                                ? "Exit map full screen"
-                                : "Show map full screen"
-                            }
-                            aria-pressed={mapFullscreen}
-                            onClick={() =>
-                              setMapFullscreen((fullscreen) => !fullscreen)
-                            }
-                            className="sticky left-3 top-3 z-20 -mb-9 ml-3 mr-auto block rounded-lg bg-[#142b3c]/20 p-2 text-white opacity-20 shadow-lg hover:opacity-100"
-                          >
-                            <IconMaximize size={18} aria-hidden="true" />
-                          </button>
                           <div
                             ref={mapContentRef}
                             className="relative max-w-none shrink-0"
@@ -2384,6 +2411,13 @@ export default function HomeRoute() {
                               alt="Uploaded facility site map"
                               className="block h-auto w-full select-none"
                               draggable={false}
+                              onLoad={(event) => {
+                                const img = event.currentTarget;
+                                if (img.naturalWidth && img.naturalHeight)
+                                  setMapAspect(
+                                    img.naturalWidth / img.naturalHeight,
+                                  );
+                              }}
                             />
                             {data.buildings
                               .filter(
