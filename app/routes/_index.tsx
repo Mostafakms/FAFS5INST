@@ -483,6 +483,8 @@ const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
     /^Your location, accuracy about (\d+) m\.$/,
     (m) => `موقعك، الدقة حوالي ${m[1]} متر.`,
   ],
+  [/^(\d+) buildings$/, (m) => `${m[1]} مبنى`],
+  [/^(\d+) activities$/, (m) => `${m[1]} نشاطًا`],
   [
     /^Delayed and paused buildings \((\d+)\)$/,
     (m) => `المباني المتأخرة والمتوقفة (${m[1]})`,
