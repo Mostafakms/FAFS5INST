@@ -520,6 +520,14 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  Total: "الإجمالي",
+  Alarm: "الإنذار",
+  "Building status, alarm and firefighting": "حالة المباني: الإنذار والإطفاء",
+  "Firefighting status": "حالة الإطفاء",
+  "Firefighting status: ": "حالة الإطفاء: ",
+  "Firefighting activity progress": "تقدم أنشطة الإطفاء",
+  "Automatic (from activities)": "تلقائي (من الأنشطة)",
+  "Status reason (required)": "سبب الحالة (مطلوب)",
   "Has firefighting": "فيه إطفاء",
   "Firefighting buildings by type": "مباني الإطفاء حسب النوع",
   Firefighting: "الإطفاء",
@@ -788,6 +796,7 @@ export default function HomeRoute() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [ffFilter, setFfFilter] = useState("all");
+  const [dashTab, setDashTab] = useState("Total");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lang, setLang] = useState<AppLang>("en");
   const translatedNodes = useRef(new Map<Node, { src: string; out: string }>());
@@ -797,8 +806,7 @@ export default function HomeRoute() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(LANG_KEY);
-      const device = (navigator.language || "").toLowerCase().startsWith("ar");
-      if (saved === "ar" || (saved === null && device)) setLang("ar");
+      if (saved === "ar") setLang("ar");
     } catch {
       // storage unavailable: stay on English
     }
@@ -1452,6 +1460,8 @@ export default function HomeRoute() {
       types: string[];
       comment: string;
       progress: number[];
+      status: string;
+      reason: string;
     },
     "save-building-firefighting"
   >("save-building-firefighting", {
@@ -1467,6 +1477,9 @@ export default function HomeRoute() {
                       types: variables.types,
                       comment: variables.comment.trim(),
                       progress: variables.progress,
+                      ...(variables.status
+                        ? { status: variables.status, reason: variables.reason }
+                        : {}),
                     },
                   })
                 : "",
@@ -1810,18 +1823,36 @@ export default function HomeRoute() {
     [data?.buildings, search, statusFilter, ffFilter],
   );
   const ffDash = useMemo(() => {
-    const active = (data?.buildings ?? []).filter((b) => !isRemoved(b));
-    const ffs = active
+    const all = (data?.buildings ?? [])
+      .filter((b) => !isRemoved(b))
       .map((b) => ({ b, ff: parseFirefighting(b.notes) }))
-      .filter((x) => x.ff.types.length > 0);
-    const avg = ffs.length
-      ? ffs.reduce((sum, x) => sum + firefightingProgressOf(x.ff), 0) /
-        ffs.length
-      : 0;
+      .filter((x) => x.ff.types.length > 0)
+      .map((x) => ({ ...x, status: firefightingStatusOf(x.ff) }));
+    const ffs = all.filter((x) => x.status !== "Removed from scope");
+    const avgOf = (list: typeof ffs) =>
+      list.length
+        ? list.reduce((sum, x) => sum + firefightingProgressOf(x.ff), 0) /
+          list.length
+        : 0;
+    const avg = avgOf(ffs);
     const alarm = data?.overall ?? 0;
+    const statusCount: Record<string, number> = {};
+    const statusAvg: Record<string, number> = {};
+    for (const [status] of FF_STATUS_ORDER) {
+      const list = all.filter((x) => x.status === status);
+      statusCount[status] = list.length;
+      statusAvg[status] = avgOf(list);
+    }
     return {
       total: ffs.length,
       avg,
+      statusCount,
+      statusAvg,
+      activityAvg: FIREFIGHTING_ACTIVITIES.map((_, i) =>
+        ffs.length
+          ? ffs.reduce((sum, x) => sum + x.ff.progress[i], 0) / ffs.length
+          : 0,
+      ),
       combined:
         alarm * OVERALL_WEIGHTS.alarm + avg * OVERALL_WEIGHTS.firefighting,
       types: FIREFIGHTING_TYPES.map((type) => {
@@ -1829,8 +1860,7 @@ export default function HomeRoute() {
         return {
           type,
           count: list.length,
-          finished: list.filter((x) => firefightingProgressOf(x.ff) >= 99.99)
-            .length,
+          finished: list.filter((x) => x.status === "Finished").length,
         };
       }),
     };
@@ -2580,142 +2610,184 @@ export default function HomeRoute() {
             <>
               {view === "Dashboard" && (
                 <>
-                  <section className="grid gap-3 sm:grid-cols-3">
-                    {(
-                      [
-                        ["Alarm progress", data.overall],
-                        ["Firefighting progress", ffDash.avg],
-                        ["Project overall progress", ffDash.combined],
-                      ] as [string, number][]
-                    ).map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="rounded-xl border border-slate-200 bg-white p-4"
+                  <div
+                    role="tablist"
+                    aria-label="Dashboard"
+                    className="mb-4 inline-flex gap-1 rounded-xl border border-slate-200 bg-white p-1"
+                  >
+                    {["Total", "Alarm", "Firefighting"].map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        role="tab"
+                        aria-selected={dashTab === tab}
+                        onClick={() => setDashTab(tab)}
+                        className={`h-9 rounded-lg px-4 text-xs font-semibold ${dashTab === tab ? "bg-[#142b3c] text-white" : "text-slate-600 hover:bg-slate-50"}`}
                       >
-                        <div className="text-[11px] font-semibold text-slate-500">
-                          {label}
-                        </div>
-                        <div
-                          className="text-2xl font-bold text-[#142636]"
-                          dir="ltr"
-                        >
-                          {pct(value)}
-                        </div>
-                        <ProgressBar value={value} />
-                      </div>
+                        {tab}
+                      </button>
                     ))}
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-3">
-                      <div className="text-[11px] font-semibold text-slate-500">
-                        Firefighting buildings by type
-                      </div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                        {ffDash.types.map((t) => (
-                          <div
-                            key={t.type}
-                            className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
-                          >
-                            <span className="font-semibold text-slate-700">
-                              {t.type}
-                            </span>
-                            <span className="tabular-nums text-slate-600">
-                              <span className="me-3">
-                                <span>Buildings</span>{" "}
-                                <b dir="ltr">{t.count}</b>
-                              </span>
-                              <span>
-                                <span>Finished</span>{" "}
-                                <b dir="ltr">{t.finished}</b>
-                              </span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <div
-                        className="mt-2 text-[11px] text-slate-400"
-                        dir="ltr"
-                      >
-                        {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting · ${ffDash.total} buildings with firefighting`}
-                      </div>
-                    </div>
-                  </section>
-                  <section className="grid gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
-                    <div className="relative overflow-hidden rounded-xl bg-[#142b3c] p-5 text-white shadow-[0_4px_16px_rgba(20,43,60,0.12)]">
-                      <div className="absolute -right-5 -top-10 h-32 w-32 rounded-full border-[18px] border-white/[0.04]" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-300">
-                          Overall completion
-                        </span>
-                        <IconActivity size={17} className="text-amber-400" />
-                      </div>
-                      <div className="mt-5 flex items-end gap-2">
-                        <strong className="text-[36px] leading-none tracking-[-0.04em]">
-                          {pct(data.overall)}
-                        </strong>
-                        <span className="mb-1 inline-flex items-center gap-1 text-[11px] text-emerald-300">
-                          <IconArrowUpRight size={14} />
-                          Current
-                        </span>
-                      </div>
-                      <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/15">
-                        <div
-                          className="h-full rounded-full bg-amber-400"
-                          style={{
-                            width: `${Math.max(0, Math.min(100, data.overall))}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="mt-2 flex justify-between text-[10px] text-slate-400">
-                        <span>Active scope</span>
-                        <span>{data.activeCount} buildings</span>
-                      </div>
-                      <div className="mt-5 space-y-2 border-t border-white/10 pt-4 text-[12px]">
+                  </div>
+                  {dashTab === "Total" && (
+                    <>
+                      <section className="grid gap-3 sm:grid-cols-3">
                         {(
                           [
-                            ["Active buildings", data.activeCount],
-                            ["Finished", statusStats["Finished"]?.count ?? 0],
-                            ["Paused", statusStats["Hold"]?.count ?? 0],
-                            ["Delayed", statusStats["Delayed"]?.count ?? 0],
+                            ["Alarm progress", data.overall],
+                            ["Firefighting progress", ffDash.avg],
+                            ["Project overall progress", ffDash.combined],
                           ] as [string, number][]
                         ).map(([label, value]) => (
                           <div
                             key={label}
-                            className="flex items-center justify-between text-slate-300"
+                            className="rounded-xl border border-slate-200 bg-white p-4"
                           >
-                            <span>{label}</span>
-                            <span className="font-semibold tabular-nums text-white">
-                              {value}
-                            </span>
+                            <div className="text-[11px] font-semibold text-slate-500">
+                              {label}
+                            </div>
+                            <div
+                              className="text-2xl font-bold text-[#142636]"
+                              dir="ltr"
+                            >
+                              {pct(value)}
+                            </div>
+                            <ProgressBar value={value} />
                           </div>
                         ))}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
-                      {(
-                        [
-                          ["Finished", "bg-emerald-500", "text-emerald-700"],
-                          ["In progress", "bg-amber-500", "text-amber-700"],
-                          ["Hold", "bg-yellow-700", "text-yellow-800"],
-                          ["Delayed", "bg-red-600", "text-red-700"],
-                          ["Not started", "bg-slate-300", "text-slate-600"],
-                          [
-                            "Removed from scope",
-                            "bg-slate-500",
-                            "text-slate-600",
-                          ],
-                        ] as [string, string, string][]
-                      ).map(([status, dot, text]) => {
-                        const count = statusStats[status]?.count ?? 0;
-                        const avg = statusAvg(status);
-                        const removed = status === "Removed from scope";
-                        return (
-                          <button
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-3">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            Firefighting buildings by type
+                          </div>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                            {ffDash.types.map((t) => (
+                              <div
+                                key={t.type}
+                                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                              >
+                                <span className="font-semibold text-slate-700">
+                                  {t.type}
+                                </span>
+                                <span className="tabular-nums text-slate-600">
+                                  <span className="me-3">
+                                    <span>Buildings</span>{" "}
+                                    <b dir="ltr">{t.count}</b>
+                                  </span>
+                                  <span>
+                                    <span>Finished</span>{" "}
+                                    <b dir="ltr">{t.finished}</b>
+                                  </span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div
+                            className="mt-2 text-[11px] text-slate-400"
+                            dir="ltr"
+                          >
+                            {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting · ${ffDash.total} buildings with firefighting`}
+                          </div>
+                        </div>
+                      </section>
+                      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="mb-2 text-[11px] font-semibold text-slate-500">
+                          Building status, alarm and firefighting
+                        </div>
+                        <table className="w-full text-start text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-slate-400">
+                              <th className="py-2 text-start font-semibold">
+                                Status
+                              </th>
+                              <th className="py-2 text-start font-semibold">
+                                Alarm
+                              </th>
+                              <th className="py-2 text-start font-semibold">
+                                Firefighting
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {FF_STATUS_ORDER.map(([status]) => (
+                              <tr
+                                key={status}
+                                className="border-b border-slate-100"
+                              >
+                                <td className="py-2 font-semibold text-slate-700">
+                                  {statusLabel(status)}
+                                </td>
+                                <td className="py-2 tabular-nums" dir="ltr">
+                                  {statusStats[status]?.count ?? 0}
+                                </td>
+                                <td className="py-2 tabular-nums" dir="ltr">
+                                  {ffDash.statusCount[status] ?? 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </section>
+                    </>
+                  )}
+                  {dashTab === "Firefighting" && (
+                    <>
+                      <section className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200 bg-white p-4">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            Firefighting progress
+                          </div>
+                          <div
+                            className="text-2xl font-bold text-[#142636]"
+                            dir="ltr"
+                          >
+                            {pct(ffDash.avg)}
+                          </div>
+                          <ProgressBar value={ffDash.avg} />
+                          <div
+                            className="mt-1 text-[11px] text-slate-400"
+                            dir="ltr"
+                          >
+                            {`${ffDash.total} buildings with firefighting`}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 ">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            Firefighting buildings by type
+                          </div>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                            {ffDash.types.map((t) => (
+                              <div
+                                key={t.type}
+                                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                              >
+                                <span className="font-semibold text-slate-700">
+                                  {t.type}
+                                </span>
+                                <span className="tabular-nums text-slate-600">
+                                  <span className="me-3">
+                                    <span>Buildings</span>{" "}
+                                    <b dir="ltr">{t.count}</b>
+                                  </span>
+                                  <span>
+                                    <span>Finished</span>{" "}
+                                    <b dir="ltr">{t.finished}</b>
+                                  </span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div
+                            className="mt-2 text-[11px] text-slate-400"
+                            dir="ltr"
+                          >
+                            {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting · ${ffDash.total} buildings with firefighting`}
+                          </div>
+                        </div>
+                      </section>
+                      <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+                        {FF_STATUS_ORDER.map(([status, dot, text]) => (
+                          <div
                             key={status}
-                            type="button"
-                            onClick={() => {
-                              setStatusFilter([status]);
-                              setView("Buildings");
-                            }}
-                            className="rounded-xl border border-slate-200 bg-white p-4 text-start shadow-[0_2px_10px_rgba(17,33,49,0.025)] transition hover:border-slate-300"
+                            className="rounded-xl border border-slate-200 bg-white p-4"
                           >
                             <div className="flex items-center gap-2">
                               <span
@@ -2727,235 +2799,383 @@ export default function HomeRoute() {
                                 {statusLabel(status)}
                               </span>
                             </div>
-                            <div className="mt-3 text-[30px] font-bold leading-none tracking-[-0.04em] text-[#192e3e]">
-                              {count}
+                            <div
+                              className="mt-3 text-[30px] font-bold leading-none text-[#192e3e]"
+                              dir="ltr"
+                            >
+                              {ffDash.statusCount[status] ?? 0}
                             </div>
-                            {removed ? (
-                              <div className="mt-2 text-[11px] text-slate-400">
-                                Excluded from totals
+                            {status !== "Removed from scope" && (
+                              <div
+                                className="mt-2 text-[11px] text-slate-500"
+                                dir="ltr"
+                              >
+                                {ffDash.statusCount[status] > 0
+                                  ? `avg progress ${ffDash.statusAvg[status].toFixed(1)}%`
+                                  : "No buildings"}
                               </div>
-                            ) : (
-                              <>
-                                <div className="mt-2 text-[11px] text-slate-500">
-                                  {count > 0
-                                    ? `avg progress ${avg.toFixed(1)}%`
-                                    : "No buildings"}
-                                </div>
-                                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                                  <div
-                                    className={`h-full rounded-full ${dot}`}
-                                    style={{
-                                      width: `${Math.max(0, Math.min(100, avg))}%`,
-                                    }}
-                                  />
-                                </div>
-                              </>
                             )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  <section className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_10px_rgba(17,33,49,0.025)] md:p-6">
-                      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h2 className="text-[14px] font-bold text-[#1c3041]">
-                            Activity progress
-                          </h2>
-                          <p className="mt-1 text-[11px] text-slate-400">
-                            Average completion across active buildings
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => setView("Activities")}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#335a72] hover:text-amber-700"
-                        >
-                          View activities <IconChevronRight size={14} />
-                        </button>
-                      </div>
-                      <div className="space-y-[18px]">
-                        {data.activities.map((activity) => (
-                          <div key={activity.id}>
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <span className="truncate pr-4 text-[12px] font-medium text-slate-700">
-                                {activity.name}
-                              </span>
-                              <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-600">
-                                {pct(activeActivityProgress(activity.id))}
-                                <span className="ms-2 font-normal text-slate-400">
-                                  {Number(activity.weight)}%
-                                </span>
-                              </span>
-                            </div>
-                            <ProgressBar
-                              value={activeActivityProgress(activity.id)}
-                            />
                           </div>
                         ))}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_10px_rgba(17,33,49,0.025)] md:p-6">
-                      <div className="mb-5 flex items-center justify-between">
-                        <div>
-                          <h2 className="text-[14px] font-bold text-[#1c3041]">
-                            Building status
-                          </h2>
-                          <p className="mt-1 text-[11px] text-slate-400">
-                            Buildings per status and their average progress
-                          </p>
+                      </section>
+                      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="mb-3 text-[11px] font-semibold text-slate-500">
+                          Firefighting activity progress
                         </div>
-                        <IconFilter size={16} className="text-slate-400" />
-                      </div>
-                      <div className="space-y-4">
-                        {(
-                          [
-                            ["Finished", "bg-emerald-500"],
-                            ["In progress", "bg-amber-500"],
-                            ["Hold", "bg-yellow-700"],
-                            ["Delayed", "bg-red-600"],
-                            ["Not started", "bg-slate-300"],
-                          ] as [string, string][]
-                        ).map(([status, color]) => {
-                          const count = statusStats[status]?.count ?? 0;
-                          const avg = statusAvg(status);
-                          return (
-                            <div key={status}>
-                              <div className="flex items-center gap-3">
+                        <div className="space-y-3">
+                          {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                            <div key={name}>
+                              <div className="mb-1 flex justify-between text-xs">
+                                <span className="text-slate-700">{name}</span>
                                 <span
-                                  className={`h-2 w-2 rounded-full ${color}`}
-                                />
-                                <span className="flex-1 text-xs text-slate-600">
-                                  {statusLabel(status)}
-                                </span>
-                                <span className="text-xs font-bold tabular-nums text-slate-700">
-                                  {count}
-                                </span>
-                                <span className="w-12 text-end text-[11px] tabular-nums text-slate-400">
-                                  {count > 0 ? `${avg.toFixed(0)}%` : "—"}
+                                  className="font-semibold tabular-nums text-slate-600"
+                                  dir="ltr"
+                                >
+                                  {pct(ffDash.activityAvg[i])}
                                 </span>
                               </div>
-                              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
-                                <div
-                                  className={`h-full rounded-full ${color}`}
-                                  style={{
-                                    width: `${Math.max(0, Math.min(100, avg))}%`,
-                                  }}
-                                />
-                              </div>
+                              <ProgressBar value={ffDash.activityAvg[i]} />
                             </div>
-                          );
-                        })}
-                      </div>
-                      <div
-                        dir="ltr"
-                        className="mt-6 flex h-2 overflow-hidden rounded-full bg-slate-100"
-                      >
-                        {data.activeCount > 0 &&
-                          (
-                            [
-                              ["Finished", "bg-emerald-500"],
-                              ["In progress", "bg-amber-500"],
-                              ["Hold", "bg-yellow-700"],
-                              ["Delayed", "bg-red-600"],
-                              ["Not started", "bg-slate-300"],
-                            ] as [string, string][]
-                          ).map(([status, color]) => (
+                          ))}
+                        </div>
+                      </section>
+                    </>
+                  )}
+                  {dashTab === "Alarm" && (
+                    <>
+                      <section className="grid gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
+                        <div className="relative overflow-hidden rounded-xl bg-[#142b3c] p-5 text-white shadow-[0_4px_16px_rgba(20,43,60,0.12)]">
+                          <div className="absolute -right-5 -top-10 h-32 w-32 rounded-full border-[18px] border-white/[0.04]" />
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-300">
+                              Overall completion
+                            </span>
+                            <IconActivity
+                              size={17}
+                              className="text-amber-400"
+                            />
+                          </div>
+                          <div className="mt-5 flex items-end gap-2">
+                            <strong className="text-[36px] leading-none tracking-[-0.04em]">
+                              {pct(data.overall)}
+                            </strong>
+                            <span className="mb-1 inline-flex items-center gap-1 text-[11px] text-emerald-300">
+                              <IconArrowUpRight size={14} />
+                              Current
+                            </span>
+                          </div>
+                          <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/15">
                             <div
-                              key={status}
-                              className={color}
+                              className="h-full rounded-full bg-amber-400"
                               style={{
-                                width: `${((statusStats[status]?.count ?? 0) / data.activeCount) * 100}%`,
+                                width: `${Math.max(0, Math.min(100, data.overall))}%`,
                               }}
                             />
-                          ))}
-                      </div>
-                      <div className="mt-6 border-t border-slate-100 pt-4">
-                        <h3 className="mb-3 text-[11px] font-semibold text-slate-500">
-                          RECENTLY UPDATED
-                        </h3>
-                        {data.history.length === 0 ? (
-                          <div className="text-xs text-slate-400">
-                            No progress updates recorded yet.
                           </div>
-                        ) : (
-                          data.history.slice(0, 3).map((item) => (
-                            <div
-                              key={item.id}
-                              className="mb-3 flex items-start justify-between gap-3 last:mb-0"
-                            >
-                              <div className="min-w-0">
-                                <button
-                                  className="truncate text-left text-xs font-semibold text-[#29475d] hover:underline"
-                                  onClick={() => {
-                                    const building = data.buildings.find(
-                                      (entry) => entry.id === item.buildingId,
-                                    );
-                                    if (building) openBuilding(building);
-                                  }}
-                                >
-                                  {displayBuildingLine(
-                                    item.buildingNumber,
-                                    item.buildingName,
-                                  )}
-                                </button>
-                                <div className="mt-1 truncate text-[10px] text-slate-400">
-                                  {item.activityName} · {item.changedBy}
-                                </div>
+                          <div className="mt-2 flex justify-between text-[10px] text-slate-400">
+                            <span>Active scope</span>
+                            <span>{data.activeCount} buildings</span>
+                          </div>
+                          <div className="mt-5 space-y-2 border-t border-white/10 pt-4 text-[12px]">
+                            {(
+                              [
+                                ["Active buildings", data.activeCount],
+                                [
+                                  "Finished",
+                                  statusStats["Finished"]?.count ?? 0,
+                                ],
+                                ["Paused", statusStats["Hold"]?.count ?? 0],
+                                ["Delayed", statusStats["Delayed"]?.count ?? 0],
+                              ] as [string, number][]
+                            ).map(([label, value]) => (
+                              <div
+                                key={label}
+                                className="flex items-center justify-between text-slate-300"
+                              >
+                                <span>{label}</span>
+                                <span className="font-semibold tabular-nums text-white">
+                                  {value}
+                                </span>
                               </div>
-                              <span className="shrink-0 text-[10px] text-slate-400">
-                                {dateText(item.changedAt)}
-                              </span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </section>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                          {(
+                            [
+                              [
+                                "Finished",
+                                "bg-emerald-500",
+                                "text-emerald-700",
+                              ],
+                              ["In progress", "bg-amber-500", "text-amber-700"],
+                              ["Hold", "bg-yellow-700", "text-yellow-800"],
+                              ["Delayed", "bg-red-600", "text-red-700"],
+                              ["Not started", "bg-slate-300", "text-slate-600"],
+                              [
+                                "Removed from scope",
+                                "bg-slate-500",
+                                "text-slate-600",
+                              ],
+                            ] as [string, string, string][]
+                          ).map(([status, dot, text]) => {
+                            const count = statusStats[status]?.count ?? 0;
+                            const avg = statusAvg(status);
+                            const removed = status === "Removed from scope";
+                            return (
+                              <button
+                                key={status}
+                                type="button"
+                                onClick={() => {
+                                  setStatusFilter([status]);
+                                  setView("Buildings");
+                                }}
+                                className="rounded-xl border border-slate-200 bg-white p-4 text-start shadow-[0_2px_10px_rgba(17,33,49,0.025)] transition hover:border-slate-300"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`h-2.5 w-2.5 rounded-full ${dot}`}
+                                  />
+                                  <span
+                                    className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${text}`}
+                                  >
+                                    {statusLabel(status)}
+                                  </span>
+                                </div>
+                                <div className="mt-3 text-[30px] font-bold leading-none tracking-[-0.04em] text-[#192e3e]">
+                                  {count}
+                                </div>
+                                {removed ? (
+                                  <div className="mt-2 text-[11px] text-slate-400">
+                                    Excluded from totals
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="mt-2 text-[11px] text-slate-500">
+                                      {count > 0
+                                        ? `avg progress ${avg.toFixed(1)}%`
+                                        : "No buildings"}
+                                    </div>
+                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                      <div
+                                        className={`h-full rounded-full ${dot}`}
+                                        style={{
+                                          width: `${Math.max(0, Math.min(100, avg))}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
 
-                  <section className="mt-5 rounded-xl border border-slate-200 bg-white shadow-[0_2px_10px_rgba(17,33,49,0.025)]">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 md:px-6">
-                      <div>
-                        <h2 className="text-[14px] font-bold text-[#1c3041]">
-                          Building progress
-                        </h2>
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          Latest status across the project
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="relative">
-                          <IconSearch
-                            size={15}
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          />
-                          <input
-                            className="h-8 w-[190px] rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none placeholder:text-slate-400 focus:border-[#7993a6] focus:ring-2 focus:ring-[#cad7df]"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Search buildings"
-                          />
-                        </label>
-                        <button
-                          onClick={() => setView("Buildings")}
-                          className="hidden rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 sm:inline-flex"
-                        >
-                          All buildings
-                        </button>
-                      </div>
-                    </div>
-                    <BuildingTable
-                      buildings={filtered.slice(0, 6)}
-                      onOpen={openBuilding}
-                      onLocate={locateBuilding}
-                      onAssignOnMap={
-                        dashboard.data?.userRole === "Site Manager"
-                          ? assignBuildingOnMap
-                          : undefined
-                      }
-                    />
-                  </section>
+                      <section className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_10px_rgba(17,33,49,0.025)] md:p-6">
+                          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h2 className="text-[14px] font-bold text-[#1c3041]">
+                                Activity progress
+                              </h2>
+                              <p className="mt-1 text-[11px] text-slate-400">
+                                Average completion across active buildings
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => setView("Activities")}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#335a72] hover:text-amber-700"
+                            >
+                              View activities <IconChevronRight size={14} />
+                            </button>
+                          </div>
+                          <div className="space-y-[18px]">
+                            {data.activities.map((activity) => (
+                              <div key={activity.id}>
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <span className="truncate pr-4 text-[12px] font-medium text-slate-700">
+                                    {activity.name}
+                                  </span>
+                                  <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-600">
+                                    {pct(activeActivityProgress(activity.id))}
+                                    <span className="ms-2 font-normal text-slate-400">
+                                      {Number(activity.weight)}%
+                                    </span>
+                                  </span>
+                                </div>
+                                <ProgressBar
+                                  value={activeActivityProgress(activity.id)}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-[0_2px_10px_rgba(17,33,49,0.025)] md:p-6">
+                          <div className="mb-5 flex items-center justify-between">
+                            <div>
+                              <h2 className="text-[14px] font-bold text-[#1c3041]">
+                                Building status
+                              </h2>
+                              <p className="mt-1 text-[11px] text-slate-400">
+                                Buildings per status and their average progress
+                              </p>
+                            </div>
+                            <IconFilter size={16} className="text-slate-400" />
+                          </div>
+                          <div className="space-y-4">
+                            {(
+                              [
+                                ["Finished", "bg-emerald-500"],
+                                ["In progress", "bg-amber-500"],
+                                ["Hold", "bg-yellow-700"],
+                                ["Delayed", "bg-red-600"],
+                                ["Not started", "bg-slate-300"],
+                              ] as [string, string][]
+                            ).map(([status, color]) => {
+                              const count = statusStats[status]?.count ?? 0;
+                              const avg = statusAvg(status);
+                              return (
+                                <div key={status}>
+                                  <div className="flex items-center gap-3">
+                                    <span
+                                      className={`h-2 w-2 rounded-full ${color}`}
+                                    />
+                                    <span className="flex-1 text-xs text-slate-600">
+                                      {statusLabel(status)}
+                                    </span>
+                                    <span className="text-xs font-bold tabular-nums text-slate-700">
+                                      {count}
+                                    </span>
+                                    <span className="w-12 text-end text-[11px] tabular-nums text-slate-400">
+                                      {count > 0 ? `${avg.toFixed(0)}%` : "—"}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
+                                    <div
+                                      className={`h-full rounded-full ${color}`}
+                                      style={{
+                                        width: `${Math.max(0, Math.min(100, avg))}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div
+                            dir="ltr"
+                            className="mt-6 flex h-2 overflow-hidden rounded-full bg-slate-100"
+                          >
+                            {data.activeCount > 0 &&
+                              (
+                                [
+                                  ["Finished", "bg-emerald-500"],
+                                  ["In progress", "bg-amber-500"],
+                                  ["Hold", "bg-yellow-700"],
+                                  ["Delayed", "bg-red-600"],
+                                  ["Not started", "bg-slate-300"],
+                                ] as [string, string][]
+                              ).map(([status, color]) => (
+                                <div
+                                  key={status}
+                                  className={color}
+                                  style={{
+                                    width: `${((statusStats[status]?.count ?? 0) / data.activeCount) * 100}%`,
+                                  }}
+                                />
+                              ))}
+                          </div>
+                          <div className="mt-6 border-t border-slate-100 pt-4">
+                            <h3 className="mb-3 text-[11px] font-semibold text-slate-500">
+                              RECENTLY UPDATED
+                            </h3>
+                            {data.history.length === 0 ? (
+                              <div className="text-xs text-slate-400">
+                                No progress updates recorded yet.
+                              </div>
+                            ) : (
+                              data.history.slice(0, 3).map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="mb-3 flex items-start justify-between gap-3 last:mb-0"
+                                >
+                                  <div className="min-w-0">
+                                    <button
+                                      className="truncate text-left text-xs font-semibold text-[#29475d] hover:underline"
+                                      onClick={() => {
+                                        const building = data.buildings.find(
+                                          (entry) =>
+                                            entry.id === item.buildingId,
+                                        );
+                                        if (building) openBuilding(building);
+                                      }}
+                                    >
+                                      {displayBuildingLine(
+                                        item.buildingNumber,
+                                        item.buildingName,
+                                      )}
+                                    </button>
+                                    <div className="mt-1 truncate text-[10px] text-slate-400">
+                                      {item.activityName} · {item.changedBy}
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 text-[10px] text-slate-400">
+                                    {dateText(item.changedAt)}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="mt-5 rounded-xl border border-slate-200 bg-white shadow-[0_2px_10px_rgba(17,33,49,0.025)]">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 md:px-6">
+                          <div>
+                            <h2 className="text-[14px] font-bold text-[#1c3041]">
+                              Building progress
+                            </h2>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              Latest status across the project
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="relative">
+                              <IconSearch
+                                size={15}
+                                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                              />
+                              <input
+                                className="h-8 w-[190px] rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none placeholder:text-slate-400 focus:border-[#7993a6] focus:ring-2 focus:ring-[#cad7df]"
+                                value={search}
+                                onChange={(event) =>
+                                  setSearch(event.target.value)
+                                }
+                                placeholder="Search buildings"
+                              />
+                            </label>
+                            <button
+                              onClick={() => setView("Buildings")}
+                              className="hidden rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 sm:inline-flex"
+                            >
+                              All buildings
+                            </button>
+                          </div>
+                        </div>
+                        <BuildingTable
+                          buildings={filtered.slice(0, 6)}
+                          onOpen={openBuilding}
+                          onLocate={locateBuilding}
+                          onAssignOnMap={
+                            dashboard.data?.userRole === "Site Manager"
+                              ? assignBuildingOnMap
+                              : undefined
+                          }
+                        />
+                      </section>
+                    </>
+                  )}
                 </>
               )}
 
@@ -4355,12 +4575,14 @@ export default function HomeRoute() {
                         canEdit={data?.userRole === "Site Manager"}
                         saving={saveFirefightingMutation.isPending}
                         feedback={firefightingFeedback}
-                        onSave={(types, comment, progress) =>
+                        onSave={(types, comment, progress, status, reason) =>
                           saveFirefightingMutation.mutate({
                             buildingId: selected.id,
                             types,
                             comment,
                             progress,
+                            status,
+                            reason,
                           })
                         }
                       />
@@ -4912,14 +5134,23 @@ const FIREFIGHTING_ACTIVITIES = [
   "Commissioning",
   "As-built",
 ];
+const FIREFIGHTING_MANUAL_STATUSES = ["Hold", "Delayed", "Removed from scope"];
 type FirefightingData = {
   types: string[];
   comment: string;
   progress: number[];
+  status: string;
+  reason: string;
 };
 function parseFirefighting(notes: string | undefined): FirefightingData {
   const zero = FIREFIGHTING_ACTIVITIES.map(() => 0);
-  const empty: FirefightingData = { types: [], comment: "", progress: zero };
+  const empty: FirefightingData = {
+    types: [],
+    comment: "",
+    progress: zero,
+    status: "",
+    reason: "",
+  };
   if (!notes) return empty;
   try {
     const parsed = JSON.parse(notes);
@@ -4930,6 +5161,8 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
         (t: unknown): t is string => typeof t === "string",
       ),
       comment: typeof ff.comment === "string" ? ff.comment : "",
+      status: FIREFIGHTING_MANUAL_STATUSES.includes(ff.status) ? ff.status : "",
+      reason: typeof ff.reason === "string" ? ff.reason : "",
       progress: FIREFIGHTING_ACTIVITIES.map((_, i) => {
         const n = Number(Array.isArray(ff.progress) ? ff.progress[i] : 0);
         return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
@@ -4992,6 +5225,22 @@ function FirefightingFilterChips({
   );
 }
 
+// Firefighting status: Paused, Delayed and Out of scope are set by hand;
+// the others come from the four activities.
+const firefightingStatusOf = (ff: FirefightingData) => {
+  if (ff.status) return ff.status;
+  const avg = firefightingProgressOf(ff);
+  return avg >= 99.99 ? "Finished" : avg > 0 ? "In progress" : "Not started";
+};
+const FF_STATUS_ORDER: [string, string, string][] = [
+  ["Not started", "bg-slate-300", "text-slate-600"],
+  ["In progress", "bg-amber-500", "text-amber-700"],
+  ["Hold", "bg-yellow-700", "text-yellow-800"],
+  ["Delayed", "bg-red-600", "text-red-700"],
+  ["Finished", "bg-emerald-500", "text-emerald-700"],
+  ["Removed from scope", "bg-slate-500", "text-slate-600"],
+];
+
 function FirefightingSection({
   building,
   canEdit,
@@ -5003,14 +5252,24 @@ function FirefightingSection({
   canEdit: boolean;
   saving: boolean;
   feedback: string;
-  onSave: (types: string[], comment: string, progress: number[]) => void;
+  onSave: (
+    types: string[],
+    comment: string,
+    progress: number[],
+    status: string,
+    reason: string,
+  ) => void;
 }) {
   const current = parseFirefighting(building.notes);
   const [editing, setEditing] = useState(false);
   const [types, setTypes] = useState<string[]>(current.types);
   const [comment, setComment] = useState(current.comment);
   const [progress, setProgress] = useState<number[]>(current.progress);
+  const [manualStatus, setManualStatus] = useState(current.status);
+  const [reason, setReason] = useState(current.reason);
   const reset = () => {
+    setManualStatus(current.status);
+    setReason(current.reason);
     setEditing(false);
     setTypes(current.types);
     setComment(current.comment);
@@ -5053,6 +5312,11 @@ function FirefightingSection({
                 {type}
               </span>
             ))}
+          </div>
+          <div className="text-xs text-slate-600">
+            <span className="font-semibold">Firefighting status: </span>
+            {statusLabel(firefightingStatusOf(current))}
+            {current.status && current.reason ? ` · ${current.reason}` : ""}
           </div>
           {current.comment && (
             <p className="whitespace-pre-line text-xs leading-5 text-slate-600">
@@ -5122,6 +5386,34 @@ function FirefightingSection({
             />
           </label>
           {types.length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-[11px] font-semibold text-slate-500">
+                Firefighting status
+                <select
+                  value={manualStatus}
+                  onChange={(event) => setManualStatus(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs font-normal text-slate-700"
+                >
+                  <option value="">Automatic (from activities)</option>
+                  <option value="Hold">Paused</option>
+                  <option value="Delayed">Delayed</option>
+                  <option value="Removed from scope">Removed from scope</option>
+                </select>
+              </label>
+              {manualStatus && (
+                <label className="block text-[11px] font-semibold text-slate-500">
+                  Status reason (required)
+                  <input
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    maxLength={500}
+                    className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs font-normal text-slate-700"
+                  />
+                </label>
+              )}
+            </div>
+          )}
+          {types.length > 0 && (
             <div className="rounded-lg bg-[#f5f7f8] p-3">
               <div className="space-y-1.5">
                 {FIREFIGHTING_ACTIVITIES.map((name, i) => (
@@ -5151,7 +5443,10 @@ function FirefightingSection({
             <button
               type="button"
               disabled={saving}
-              onClick={() => onSave(types, comment, progress)}
+              onClick={() => {
+                if (manualStatus && !reason.trim()) return;
+                onSave(types, comment, progress, manualStatus, reason);
+              }}
               className="rounded-lg bg-[#142b3c] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
             >
               Save firefighting
@@ -5167,7 +5462,7 @@ function FirefightingSection({
               <button
                 type="button"
                 disabled={saving}
-                onClick={() => onSave([], "", [0, 0, 0, 0])}
+                onClick={() => onSave([], "", [0, 0, 0, 0], "", "")}
                 className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 disabled:opacity-60"
               >
                 Remove firefighting
