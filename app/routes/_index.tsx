@@ -452,6 +452,11 @@ const AR_TEXT: Record<string, string> = {
   "Optional update note": "ملاحظة اختيارية على التحديث",
 };
 const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^Updated not updated$/, () => "لم يُحدَّث بعد"],
+  [
+    /^Updated (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})$/,
+    (m) => `آخر تحديث ${m[2]} ${AR_MONTHS[m[1]]}`,
+  ],
   [/^([\d.]+)% weight$/, (m) => `الوزن ${m[1]}%`],
   [/^Contribution ([\d.]+%)$/, (m) => `المساهمة ${m[1]}`],
   [
@@ -4068,7 +4073,7 @@ export default function HomeRoute() {
                             <div className="mb-2 flex justify-between gap-4">
                               <div className="text-xs font-semibold text-slate-700">
                                 {activity.name}
-                                <span className="ml-2 font-normal text-slate-400">
+                                <span className="ms-2 font-normal text-slate-400">
                                   {`${Number(activity.weight)}% weight`}
                                 </span>
                               </div>
@@ -4335,7 +4340,7 @@ function BuildingTable({
                       </span>
                     </div>
                     <div className="mt-1 text-[10px] text-slate-400">
-                      Updated {mostRecentUpdate(building)}
+                      {`Updated ${mostRecentUpdate(building)}`}
                     </div>
                   </div>
                 </div>
