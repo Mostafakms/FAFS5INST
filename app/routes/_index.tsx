@@ -208,6 +208,23 @@ function displayBuildingLine(buildingNumber: string, name: string) {
 
 const MAP_ZOOM_STEP = 5;
 
+const STATUS_DEFINITIONS: { status: string; meaning: string }[] = [
+  {
+    status: "Not started",
+    meaning:
+      "Work has not started. It can start anytime and nobody is blocking it.",
+  },
+  {
+    status: "Hold",
+    meaning: "Paused on purpose after work started. Reason is required.",
+  },
+  {
+    status: "Delayed",
+    meaning:
+      "Someone delayed or blocked the work. The reason is shown in Status reason and is required.",
+  },
+];
+
 const pct = (value: number) => `${value.toFixed(1)}%`;
 const isRemoved = (building: Building) =>
   building.manualStatus === "Removed from scope";
@@ -1904,6 +1921,19 @@ export default function HomeRoute() {
                       <Legend color="bg-slate-500" label="Removed from scope" />
                       <Legend color="bg-yellow-700" label="Hold" />
                       <Legend color="bg-red-600" label="Delayed" />
+                      <details className="w-full">
+                        <summary className="cursor-pointer font-semibold text-slate-600">
+                          Status meanings
+                        </summary>
+                        <div className="mt-1 space-y-0.5 leading-snug">
+                          {STATUS_DEFINITIONS.map((item) => (
+                            <div key={item.status}>
+                              <span className="font-bold">{item.status}:</span>{" "}
+                              {item.meaning}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                     </div>
                   </div>
                   {!mapFullscreen && data.userRole === "Site Manager" && (
@@ -2757,9 +2787,24 @@ export default function HomeRoute() {
                           <option value="Delayed">Delayed</option>
                         </select>
                       </label>
+                      <div className="rounded-lg bg-slate-50 p-2.5 text-[10px] leading-snug text-slate-500 sm:col-span-2">
+                        {STATUS_DEFINITIONS.map((item) => (
+                          <div
+                            key={item.status}
+                            className={
+                              buildingStatusDraft === item.status
+                                ? "font-semibold text-slate-800"
+                                : ""
+                            }
+                          >
+                            <span className="font-bold">{item.status}:</span>{" "}
+                            {item.meaning}
+                          </div>
+                        ))}
+                      </div>
                       {["Hold", "Delayed"].includes(buildingStatusDraft) && (
                         <label className="text-[11px] font-semibold text-slate-600 sm:col-span-2">
-                          Reason
+                          Reason (required)
                           <textarea
                             required
                             maxLength={1000}
