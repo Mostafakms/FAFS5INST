@@ -77,6 +77,7 @@ type HistoryEntry = {
   note: string;
 };
 type SiteMapInfo = { filename: string; contentType: string; updatedAt: string };
+type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 type DashboardData = {
   overall: number;
   userRole: string | null;
@@ -211,6 +212,8 @@ export default function HomeRoute() {
     width: 0,
     height: 0,
   });
+  const [installPromptEvent, setInstallPromptEvent] =
+    useState<InstallPromptEvent | null>(null);
   const mapPanStart = useRef<{
     x: number;
     y: number;
@@ -266,6 +269,19 @@ export default function HomeRoute() {
     observer.observe(content);
     return () => observer.disconnect();
   }, [view, mapZoom, mapFullscreen]);
+  useEffect(() => {
+    const onBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event as InstallPromptEvent);
+    };
+    const onInstalled = () => setInstallPromptEvent(null);
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
   const session = useSession();
   const dashboard = useActionQuery<DashboardData>(
     "get-project-dashboard",
@@ -447,8 +463,8 @@ export default function HomeRoute() {
         const polyHeightPx = ((maxY - minY) / 100) * contentHeight;
         fontSize = Math.min(
           fontSize,
-          (polyWidthPx * 1.15) / Math.max(8, building.name.length * 0.52),
-          polyHeightPx * 0.9,
+          (polyWidthPx * 2.0) / Math.max(3, building.name.length * 0.52),
+          polyHeightPx * 1.5,
         );
       }
       if (isSelected) fontSize = Math.max(fontSize, 8);
@@ -1093,6 +1109,19 @@ export default function HomeRoute() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {installPromptEvent && (
+              <button
+                onClick={() => {
+                  const promptEvent = installPromptEvent;
+                  setInstallPromptEvent(null);
+                  void promptEvent.prompt();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <IconDownload size={13} />
+                Install app
+              </button>
+            )}
             <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 sm:flex">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               LIVE PROJECT
@@ -2982,4 +3011,4 @@ function mostRecentUpdate(building: Building) {
     .sort();
   const date = dates[dates.length - 1];
   return date ? dateText(date) : "not updated";
-    }
+  }
