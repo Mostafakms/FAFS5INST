@@ -15,9 +15,11 @@ export default defineAction({
     types: z.array(z.enum(TYPES)).max(3),
     comment: z.string().max(2000),
     progress: z.array(z.number().min(0).max(100)).length(4).optional(),
+    status: z.enum(["", "Hold", "Delayed", "Removed from scope"]).optional(),
+    reason: z.string().max(500).optional(),
   }),
   requiresAuth: true,
-  run: async ({ buildingId, types, comment, progress }) => {
+  run: async ({ buildingId, types, comment, progress, status, reason }) => {
     const email = getRequestUserEmail();
     if (!email) fail("Authentication required", { statusCode: 401 });
     const db = getDb();
@@ -55,6 +57,8 @@ export default defineAction({
           statusCode: 409,
         });
     }
+    if (status && !(reason ?? "").trim())
+      fail("A reason is required for this status", { statusCode: 400 });
     const unique = TYPES.filter((type) => types.includes(type));
     const notes = unique.length
       ? JSON.stringify({
@@ -62,6 +66,7 @@ export default defineAction({
             types: unique,
             comment: comment.trim(),
             progress: progress ?? [0, 0, 0, 0],
+            ...(status ? { status, reason: (reason ?? "").trim() } : {}),
           },
         })
       : "";
