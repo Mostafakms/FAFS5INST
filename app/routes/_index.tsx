@@ -452,6 +452,12 @@ const AR_TEXT: Record<string, string> = {
   "Optional update note": "ملاحظة اختيارية على التحديث",
 };
 const AR_PATTERNS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^([\d.]+)% weight$/, (m) => `الوزن ${m[1]}%`],
+  [/^Contribution ([\d.]+%)$/, (m) => `المساهمة ${m[1]}`],
+  [
+    /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})$/,
+    (m) => `${m[2]} ${AR_MONTHS[m[1]]}`,
+  ],
   [/^avg progress ([\d.]+)%$/, (m) => `متوسط التقدم ${m[1]}%`],
   [/^(\d+) completed$/, (m) => `${m[1]} مكتمل`],
   [/^(\d+) not started$/, (m) => `${m[1]} لم يبدأ`],
@@ -479,7 +485,7 @@ function translateToArabic(text: string) {
   const lead = text.slice(0, text.indexOf(trimmed));
   const trail = text.slice(lead.length + trimmed.length);
   const normalized = trimmed.replace(/\s+/g, " ");
-  let out: string | undefined = AR_TEXT[normalized];
+  let out: string | undefined = AR_OVERRIDES[normalized] ?? AR_TEXT[normalized];
   if (!out) {
     for (const [pattern, fn] of AR_PATTERNS) {
       const m = normalized.match(pattern);
@@ -492,6 +498,65 @@ function translateToArabic(text: string) {
   return out ? `${lead}${out}${trail}` : null;
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
+const AR_OVERRIDES: Record<string, string> = {
+  Finished: "مكتمل",
+  "In progress": "قيد التنفيذ",
+  Current: "حتى الآن",
+  "Overall completion": "نسبة الإنجاز الإجمالية",
+  "Project workspace": "مساحة عمل المشروع",
+  "LIVE PROJECT": "مشروع جارٍ",
+  "Pan tool": "تحريك الخريطة",
+  "Pan: on": "التحريك مفعّل",
+  "Draw polygon": "رسم حدود المبنى",
+  "Clear polygon": "مسح الحدود",
+  "Polygon saved.": "تم حفظ حدود المبنى.",
+  "Polygon cleared.": "تم مسح حدود المبنى.",
+  "Click the map to add polygon vertices.":
+    "اضغط على الخريطة لإضافة نقاط حدود المبنى.",
+  "Draw or clear its polygon on the map.":
+    "ارسم حدود المبنى على الخريطة أو امسحها.",
+  "Click at least 3 points on the map, then finish and save.":
+    "حدّد 3 نقاط على الأقل على الخريطة، ثم أنهِ الرسم واحفظ.",
+  "Pan mode is on. Turn it off to draw a polygon.":
+    "وضع التحريك مفعّل. أوقفه لرسم حدود المبنى.",
+  "Someone delayed or blocked the work. The reason is shown in Status reason and is required.":
+    "تأخر العمل أو تعطّل. يظهر السبب في خانة سبب الحالة وهو مطلوب.",
+  "Paused on purpose after work started. Reason is required.":
+    "تم إيقاف العمل عمدًا بعد بدئه. السبب مطلوب.",
+  "Work has not started. It can start anytime and nobody is blocking it.":
+    "لم يبدأ العمل بعد. يمكن البدء في أي وقت ولا يوجد ما يعطّله.",
+  "Select activity": "اختر النشاط",
+  "Automatic from progress": "تلقائي حسب نسبة التقدم",
+  "No file chosen": "لم يتم اختيار ملف",
+  "Choose File": "اختيار ملف",
+  "Shop Drawings, Datasheets, and Design Verification":
+    "الرسومات التنفيذية وأوراق البيانات ومراجعة التصميم",
+  "First Fix": "التركيبات الأولية (First Fix)",
+  "Cable Pulling": "سحب الكابلات",
+  "Device Installation": "تركيب الأجهزة",
+  Termination: "توصيل أطراف الكابلات",
+  "Programming, Testing and Commissioning":
+    "البرمجة والاختبار والتشغيل التجريبي",
+  "As-built": "رسومات ما بعد التنفيذ (As-built)",
+  Handover: "التسليم",
+  "Fire alarm system implementation progress monitoring":
+    "متابعة تقدم تنفيذ نظام إنذار الحريق",
+  "Project Control · FAFS": "التحكم في المشروع · FAFS",
+};
+const AR_MONTHS: Record<string, string> = {
+  Jan: "يناير",
+  Feb: "فبراير",
+  Mar: "مارس",
+  Apr: "أبريل",
+  May: "مايو",
+  Jun: "يونيو",
+  Jul: "يوليو",
+  Aug: "أغسطس",
+  Sep: "سبتمبر",
+  Oct: "أكتوبر",
+  Nov: "نوفمبر",
+  Dec: "ديسمبر",
+};
 
 // Wrap a map label into a compact centred block of short lines.
 function wrapMapLabel(text: string, maxChars = 16, maxLines = 3) {
@@ -2907,13 +2972,24 @@ export default function HomeRoute() {
                     >
                       <label className="min-w-[220px] flex-1 text-[11px] font-semibold text-slate-600">
                         {data.siteMap ? "Replace site map" : "Upload site map"}
+                        <span className="mt-1.5 flex w-full items-center gap-3 text-xs text-slate-600">
+                          <span className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                            Choose File
+                          </span>
+                          <span
+                            className="min-w-0 truncate"
+                            data-no-translate-name=""
+                          >
+                            {mapFile ? mapFile.name : "No file chosen"}
+                          </span>
+                        </span>
                         <input
                           type="file"
                           accept="image/png,image/jpeg,image/webp"
                           onChange={(event) =>
                             setMapFile(event.target.files?.[0] ?? null)
                           }
-                          className="mt-1.5 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700"
+                          className="sr-only"
                         />
                       </label>
                       <div className="flex items-center gap-3">
@@ -3993,7 +4069,7 @@ export default function HomeRoute() {
                               <div className="text-xs font-semibold text-slate-700">
                                 {activity.name}
                                 <span className="ml-2 font-normal text-slate-400">
-                                  {Number(activity.weight)}% weight
+                                  {`${Number(activity.weight)}% weight`}
                                 </span>
                               </div>
                               <div className="text-xs font-semibold text-slate-600">
@@ -4002,7 +4078,7 @@ export default function HomeRoute() {
                             </div>
                             <ProgressBar value={activity.progress} />
                             <div className="mt-1 text-right text-[10px] text-slate-400">
-                              Contribution {pct(activity.contribution)}
+                              {`Contribution ${pct(activity.contribution)}`}
                             </div>
                           </div>
                         ))}
