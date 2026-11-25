@@ -30,6 +30,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 export function meta() {
   return [
@@ -220,6 +221,18 @@ export default function HomeRoute() {
     left: number;
     top: number;
   } | null>(null);
+  const mapZoomRef = useRef(MAP_ZOOM_MIN);
+  mapZoomRef.current = mapZoom;
+  const touchPointers = useRef(new Map<number, { x: number; y: number }>());
+  const touchGesture = useRef<{
+    moved: boolean;
+    startX: number;
+    startY: number;
+    pinchDist: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
+  const touchSuppressClick = useRef(false);
   useEffect(() => {
     if (!mapFullscreen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -696,7 +709,106 @@ export default function HomeRoute() {
     }
   }
 
+  function touchCenter() {
+    const pts = Array.from(touchPointers.current.values());
+    const cx = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+    const cy = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+    const dist =
+      pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0;
+    return { cx, cy, dist };
+  }
+
+  function touchDown(event: React.PointerEvent<HTMLDivElement>) {
+    touchPointers.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const { cx, cy, dist } = touchCenter();
+    const prev = touchGesture.current;
+    touchGesture.current = {
+      moved: prev ? prev.moved : false,
+      startX: prev ? prev.startX : event.clientX,
+      startY: prev ? prev.startY : event.clientY,
+      pinchDist: dist,
+      centerX: cx,
+      centerY: cy,
+    };
+    if (touchPointers.current.size === 1) touchSuppressClick.current = false;
+    if (touchPointers.current.size > 1) touchSuppressClick.current = true;
+  }
+
+  function touchMove(event: React.PointerEvent<HTMLDivElement>) {
+    const viewport = mapViewportRef.current;
+    const gesture = touchGesture.current;
+    if (!viewport || !gesture || !touchPointers.current.has(event.pointerId))
+      return;
+    touchPointers.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const { cx, cy, dist } = touchCenter();
+    if (!gesture.moved) {
+      if (
+        touchPointers.current.size < 2 &&
+        Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <
+          8
+      )
+        return;
+      gesture.moved = true;
+      touchSuppressClick.current = true;
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      gesture.centerX = cx;
+      gesture.centerY = cy;
+      gesture.pinchDist = dist;
+      return;
+    }
+    const bounds = viewport.getBoundingClientRect();
+    const prevLocalX = gesture.centerX - bounds.left;
+    const prevLocalY = gesture.centerY - bounds.top;
+    const localX = cx - bounds.left;
+    const localY = cy - bounds.top;
+    const currentZoom = mapZoomRef.current;
+    let nextZoom = currentZoom;
+    if (touchPointers.current.size > 1 && gesture.pinchDist > 0 && dist > 0) {
+      nextZoom = Math.min(
+        MAP_ZOOM_MAX,
+        Math.max(MAP_ZOOM_MIN, (currentZoom * dist) / gesture.pinchDist),
+      );
+    }
+    const scale = nextZoom / currentZoom;
+    const nextLeft = (viewport.scrollLeft + prevLocalX) * scale - localX;
+    const nextTop = (viewport.scrollTop + prevLocalY) * scale - localY;
+    if (nextZoom !== currentZoom) {
+      flushSync(() => setMapZoom(nextZoom));
+      mapZoomRef.current = nextZoom;
+    }
+    viewport.scrollLeft = nextLeft;
+    viewport.scrollTop = nextTop;
+    gesture.centerX = cx;
+    gesture.centerY = cy;
+    gesture.pinchDist = dist;
+  }
+
+  function touchEnd(event: React.PointerEvent<HTMLDivElement>) {
+    touchPointers.current.delete(event.pointerId);
+    if (touchPointers.current.size === 0) {
+      touchGesture.current = null;
+      return;
+    }
+    const { cx, cy, dist } = touchCenter();
+    if (touchGesture.current) {
+      touchGesture.current.centerX = cx;
+      touchGesture.current.centerY = cy;
+      touchGesture.current.pinchDist = dist;
+    }
+  }
+
   function startMapPan(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") return touchDown(event);
     const viewport = mapViewportRef.current;
     if (
       (!mapPanMode && event.button !== 1) ||
@@ -716,6 +828,7 @@ export default function HomeRoute() {
   }
 
   function moveMapPan(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") return touchMove(event);
     const viewport = mapViewportRef.current;
     const start = mapPanStart.current;
     if (!viewport || !start) return;
@@ -723,7 +836,8 @@ export default function HomeRoute() {
     viewport.scrollTop = start.top - (event.clientY - start.y);
   }
 
-  function stopMapPan() {
+  function stopMapPan(event?: React.PointerEvent<HTMLDivElement>) {
+    if (event?.pointerType === "touch") return touchEnd(event);
     mapPanStart.current = null;
     setMapDragging(false);
   }
@@ -1863,7 +1977,7 @@ export default function HomeRoute() {
                           +
                         </button>
                         <span className="w-12 text-center text-xs font-semibold tabular-nums text-slate-600">
-                          {mapZoom}%
+                          {Math.round(mapZoom)}%
                         </span>
                         <button
                           type="button"
@@ -1946,6 +2060,7 @@ export default function HomeRoute() {
                         )}
                         <div
                           ref={mapViewportRef}
+                          style={{ touchAction: "none" }}
                           className={`absolute inset-0 overflow-auto ${mapFullscreen ? "rounded-none border-0 bg-slate-950" : "rounded-xl border border-slate-200 bg-slate-50"} ${mapDragging ? "cursor-grabbing" : mapPanMode ? "cursor-grab" : mapDrawing && data.userRole === "Site Manager" ? "cursor-crosshair" : ""}`}
                         >
                           <button
@@ -1966,11 +2081,18 @@ export default function HomeRoute() {
                           <div
                             ref={mapContentRef}
                             className="relative max-w-none shrink-0"
-                            style={{ width: `${mapZoom}%` }}
+                            style={{ width: `${mapZoom}%`, touchAction: "none" }}
+                            onClickCapture={(event) => {
+                              if (touchSuppressClick.current) {
+                                touchSuppressClick.current = false;
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }
+                            }}
                             onPointerDown={startMapPan}
                             onPointerMove={moveMapPan}
-                            onPointerUp={stopMapPan}
-                            onPointerCancel={stopMapPan}
+                            onPointerUp={(event) => stopMapPan(event)}
+                            onPointerCancel={(event) => stopMapPan(event)}
                             onAuxClick={(event) => event.preventDefault()}
                             onClick={addPolygonPoint}
                           >
