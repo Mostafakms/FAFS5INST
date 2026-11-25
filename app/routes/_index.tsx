@@ -394,14 +394,25 @@ export default function HomeRoute() {
     moved: boolean;
     startX: number;
     startY: number;
-    pinchDist: number;
-    centerX: number;
-    centerY: number;
+    ox: number;
+    oy: number;
+    vbLeft: number;
+    vbTop: number;
+    z0: number;
+    s: number;
+    sBase: number;
+    tx: number;
+    ty: number;
+    ax: number;
+    ay: number;
+    dist0: number;
+    raf: number;
   } | null>(null);
   const touchSuppressClick = useRef(false);
   useEffect(() => {
     const viewport = mapViewportRef.current;
-    if (!viewport || view !== "Site map") return;
+    const content = mapContentRef.current;
+    if (!viewport || !content || view !== "Site map") return;
     const measure = (touches: TouchList) => {
       const a = touches[0];
       const b = touches[1];
@@ -413,71 +424,118 @@ export default function HomeRoute() {
         dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
       };
     };
-    const onStart = (event: TouchEvent) => {
-      const { cx, cy, dist } = measure(event.touches);
-      const prev = touchGesture.current;
-      touchGesture.current = {
-        moved: (prev ? prev.moved : false) || event.touches.length > 1,
-        startX: prev ? prev.startX : cx,
-        startY: prev ? prev.startY : cy,
-        pinchDist: dist,
-        centerX: cx,
-        centerY: cy,
-      };
-      if (event.touches.length === 1 && !prev)
-        touchSuppressClick.current = false;
-      if (event.touches.length > 1) touchSuppressClick.current = true;
+    const setLabelsHidden = (hidden: boolean) => {
+      content
+        .querySelectorAll<HTMLElement>("[data-map-label]")
+        .forEach((node) => {
+          node.style.visibility = hidden ? "hidden" : "";
+        });
     };
-    const onMove = (event: TouchEvent) => {
-      const gesture = touchGesture.current;
-      if (!gesture) return;
-      const { cx, cy, dist } = measure(event.touches);
-      if (!gesture.moved) {
-        if (Math.hypot(cx - gesture.startX, cy - gesture.startY) < 8) return;
-        gesture.moved = true;
-        gesture.centerX = cx;
-        gesture.centerY = cy;
-        gesture.pinchDist = dist;
-      }
-      touchSuppressClick.current = true;
-      if (event.cancelable) event.preventDefault();
-      const bounds = viewport.getBoundingClientRect();
-      const prevLocalX = gesture.centerX - bounds.left;
-      const prevLocalY = gesture.centerY - bounds.top;
-      const localX = cx - bounds.left;
-      const localY = cy - bounds.top;
-      const currentZoom = mapZoomRef.current;
-      let nextZoom = currentZoom;
-      if (event.touches.length > 1 && gesture.pinchDist > 0 && dist > 0) {
-        nextZoom = Math.min(
-          MAP_ZOOM_MAX,
-          Math.max(MAP_ZOOM_MIN, (currentZoom * dist) / gesture.pinchDist),
-        );
-      }
-      const scale = nextZoom / currentZoom;
-      const nextLeft = (viewport.scrollLeft + prevLocalX) * scale - localX;
-      const nextTop = (viewport.scrollTop + prevLocalY) * scale - localY;
-      if (nextZoom !== currentZoom) {
+    const applyTransform = () => {
+      const g = touchGesture.current;
+      if (!g) return;
+      g.raf = 0;
+      content.style.transform = `translate3d(${g.tx}px, ${g.ty}px, 0) scale(${g.s})`;
+    };
+    const reanchor = (
+      g: NonNullable<typeof touchGesture.current>,
+      cx: number,
+      cy: number,
+      dist: number,
+    ) => {
+      g.ax = (cx - g.vbLeft - g.ox - g.tx) / g.s;
+      g.ay = (cy - g.vbTop - g.oy - g.ty) / g.s;
+      g.sBase = g.s;
+      g.dist0 = dist;
+    };
+    const commit = (g: NonNullable<typeof touchGesture.current>) => {
+      if (g.raf) cancelAnimationFrame(g.raf);
+      content.style.transform = "";
+      content.style.transformOrigin = "";
+      content.style.willChange = "";
+      const nextZoom = Math.min(
+        MAP_ZOOM_MAX,
+        Math.max(MAP_ZOOM_MIN, g.z0 * g.s),
+      );
+      if (Math.abs(nextZoom - g.z0) > 0.01) {
         flushSync(() => setMapZoom(nextZoom));
         mapZoomRef.current = nextZoom;
       }
-      viewport.scrollLeft = nextLeft;
-      viewport.scrollTop = nextTop;
-      gesture.centerX = cx;
-      gesture.centerY = cy;
-      gesture.pinchDist = dist;
+      const rect = content.getBoundingClientRect();
+      const curX = rect.left - g.vbLeft;
+      const curY = rect.top - g.vbTop;
+      viewport.scrollLeft += curX - (g.ox + g.tx);
+      viewport.scrollTop += curY - (g.oy + g.ty);
+      setLabelsHidden(false);
+    };
+    const onStart = (event: TouchEvent) => {
+      const { cx, cy, dist } = measure(event.touches);
+      let g = touchGesture.current;
+      if (!g) {
+        const rect = content.getBoundingClientRect();
+        const vb = viewport.getBoundingClientRect();
+        g = {
+          moved: false,
+          startX: cx,
+          startY: cy,
+          ox: rect.left - vb.left,
+          oy: rect.top - vb.top,
+          vbLeft: vb.left,
+          vbTop: vb.top,
+          z0: mapZoomRef.current,
+          s: 1,
+          sBase: 1,
+          tx: 0,
+          ty: 0,
+          ax: 0,
+          ay: 0,
+          dist0: 0,
+          raf: 0,
+        };
+        touchGesture.current = g;
+        touchSuppressClick.current = false;
+      }
+      reanchor(g, cx, cy, dist);
+      if (event.touches.length > 1) touchSuppressClick.current = true;
+    };
+    const onMove = (event: TouchEvent) => {
+      const g = touchGesture.current;
+      if (!g) return;
+      const { cx, cy, dist } = measure(event.touches);
+      if (!g.moved) {
+        if (
+          event.touches.length < 2 &&
+          Math.hypot(cx - g.startX, cy - g.startY) < 8
+        )
+          return;
+        g.moved = true;
+        reanchor(g, cx, cy, dist);
+        content.style.transformOrigin = "0 0";
+        content.style.willChange = "transform";
+        setLabelsHidden(true);
+      }
+      touchSuppressClick.current = true;
+      if (event.cancelable) event.preventDefault();
+      if (event.touches.length > 1 && g.dist0 > 0 && dist > 0) {
+        g.s = Math.min(
+          MAP_ZOOM_MAX / g.z0,
+          Math.max(MAP_ZOOM_MIN / g.z0, (g.sBase * dist) / g.dist0),
+        );
+      }
+      g.tx = cx - g.vbLeft - g.ox - g.s * g.ax;
+      g.ty = cy - g.vbTop - g.oy - g.s * g.ay;
+      if (!g.raf) g.raf = requestAnimationFrame(applyTransform);
     };
     const onEnd = (event: TouchEvent) => {
+      const g = touchGesture.current;
+      if (!g) return;
       if (event.touches.length === 0) {
         touchGesture.current = null;
+        if (g.moved) commit(g);
         return;
       }
       const { cx, cy, dist } = measure(event.touches);
-      if (touchGesture.current) {
-        touchGesture.current.centerX = cx;
-        touchGesture.current.centerY = cy;
-        touchGesture.current.pinchDist = dist;
-      }
+      reanchor(g, cx, cy, dist);
     };
     viewport.addEventListener("touchstart", onStart, { passive: true });
     viewport.addEventListener("touchmove", onMove, { passive: false });
@@ -498,34 +556,156 @@ export default function HomeRoute() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [mapFullscreen]);
+  type SmoothZoom = {
+    z0: number;
+    s: number;
+    sTarget: number;
+    cx: number;
+    cy: number;
+    ax: number;
+    ay: number;
+    ox: number;
+    oy: number;
+    vbLeft: number;
+    vbTop: number;
+    tx: number;
+    ty: number;
+    raf: number;
+    timer: number;
+  };
+  const smoothZoom = useRef<SmoothZoom | null>(null);
+  const zoomTextRef = useRef<HTMLSpanElement>(null);
+  const zoomSliderRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (zoomSliderRef.current)
+      zoomSliderRef.current.value = String(Math.round(mapZoom));
+  }, [mapZoom]);
+  const setMapLabelsHidden = (hidden: boolean) => {
+    mapContentRef.current
+      ?.querySelectorAll<HTMLElement>("[data-map-label]")
+      .forEach((node) => {
+        node.style.visibility = hidden ? "hidden" : "";
+      });
+  };
+  const cancelSmoothZoom = () => {
+    const g = smoothZoom.current;
+    const content = mapContentRef.current;
+    if (!g) return;
+    if (g.raf) cancelAnimationFrame(g.raf);
+    window.clearTimeout(g.timer);
+    smoothZoom.current = null;
+    if (content) {
+      content.style.transform = "";
+      content.style.transformOrigin = "";
+      content.style.willChange = "";
+    }
+    setMapLabelsHidden(false);
+  };
+  const commitSmoothZoom = () => {
+    const g = smoothZoom.current;
+    const viewport = mapViewportRef.current;
+    const content = mapContentRef.current;
+    if (!g || !viewport || !content) return;
+    if (g.raf) cancelAnimationFrame(g.raf);
+    smoothZoom.current = null;
+    content.style.transform = "";
+    content.style.transformOrigin = "";
+    content.style.willChange = "";
+    const nextZoom = Math.min(
+      MAP_ZOOM_MAX,
+      Math.max(MAP_ZOOM_MIN, Math.round(g.z0 * g.s)),
+    );
+    if (nextZoom !== Math.round(g.z0)) {
+      flushSync(() => setMapZoom(nextZoom));
+      mapZoomRef.current = nextZoom;
+    }
+    if (zoomTextRef.current) zoomTextRef.current.textContent = `${nextZoom}%`;
+    const rect = content.getBoundingClientRect();
+    viewport.scrollLeft += rect.left - g.vbLeft - (g.ox + g.tx);
+    viewport.scrollTop += rect.top - g.vbTop - (g.oy + g.ty);
+    setMapLabelsHidden(false);
+  };
+  const zoomMapTo = (
+    targetZoom: number,
+    clientX?: number,
+    clientY?: number,
+  ) => {
+    const viewport = mapViewportRef.current;
+    const content = mapContentRef.current;
+    if (!viewport || !content) return;
+    const vb = viewport.getBoundingClientRect();
+    let g = smoothZoom.current;
+    if (!g) {
+      const rect = content.getBoundingClientRect();
+      g = {
+        z0: mapZoomRef.current,
+        s: 1,
+        sTarget: 1,
+        cx: 0,
+        cy: 0,
+        ax: 0,
+        ay: 0,
+        ox: rect.left - vb.left,
+        oy: rect.top - vb.top,
+        vbLeft: vb.left,
+        vbTop: vb.top,
+        tx: 0,
+        ty: 0,
+        raf: 0,
+        timer: 0,
+      };
+      smoothZoom.current = g;
+      content.style.transformOrigin = "0 0";
+      content.style.willChange = "transform";
+      setMapLabelsHidden(true);
+    }
+    const state = g;
+    state.cx = (clientX ?? vb.left + vb.width / 2) - state.vbLeft;
+    state.cy = (clientY ?? vb.top + vb.height / 2) - state.vbTop;
+    state.ax = (state.cx - state.ox - state.tx) / state.s;
+    state.ay = (state.cy - state.oy - state.ty) / state.s;
+    state.sTarget =
+      Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, targetZoom)) / state.z0;
+    window.clearTimeout(state.timer);
+    state.timer = window.setTimeout(commitSmoothZoom, 160);
+    const step = () => {
+      state.raf = 0;
+      if (smoothZoom.current !== state) return;
+      const diff = state.sTarget - state.s;
+      state.s =
+        Math.abs(diff) < state.sTarget * 0.002
+          ? state.sTarget
+          : state.s + diff * 0.35;
+      state.tx = state.cx - state.ox - state.s * state.ax;
+      state.ty = state.cy - state.oy - state.s * state.ay;
+      if (content) {
+        content.style.transform = `translate3d(${state.tx}px, ${state.ty}px, 0) scale(${state.s})`;
+      }
+      if (zoomTextRef.current)
+        zoomTextRef.current.textContent = `${Math.round(state.z0 * state.s)}%`;
+      if (state.s !== state.sTarget) state.raf = requestAnimationFrame(step);
+    };
+    if (!state.raf) state.raf = requestAnimationFrame(step);
+  };
+  const currentMapZoom = () => {
+    const g = smoothZoom.current;
+    return g ? g.z0 * g.sTarget : mapZoomRef.current;
+  };
   useEffect(() => {
     const viewport = mapViewportRef.current;
     if (!viewport || view !== "Site map") return;
     const zoomWithWheel = (event: WheelEvent) => {
-      const nextZoom = Math.min(
-        MAP_ZOOM_MAX,
-        Math.max(
-          MAP_ZOOM_MIN,
-          Math.round(mapZoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)),
-        ),
-      );
-      if (nextZoom === mapZoom) return;
       event.preventDefault();
-      const bounds = viewport.getBoundingClientRect();
-      const localX = event.clientX - bounds.left;
-      const localY = event.clientY - bounds.top;
-      const scale = nextZoom / mapZoom;
-      const nextLeft = (viewport.scrollLeft + localX) * scale - localX;
-      const nextTop = (viewport.scrollTop + localY) * scale - localY;
-      setMapZoom(nextZoom);
-      requestAnimationFrame(() => {
-        viewport.scrollLeft = nextLeft;
-        viewport.scrollTop = nextTop;
-      });
+      let dy = event.deltaY;
+      if (event.deltaMode === 1) dy *= 16;
+      else if (event.deltaMode === 2) dy *= 100;
+      dy = Math.max(-120, Math.min(120, dy));
+      const factor = Math.exp(-dy * (event.ctrlKey ? 0.01 : 0.002));
+      zoomMapTo(currentMapZoom() * factor, event.clientX, event.clientY);
     };
     viewport.addEventListener("wheel", zoomWithWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", zoomWithWheel);
-  }, [mapZoom, view]);
+  }, [view, mapFullscreen, mapContentSize.width > 0]);
   useEffect(() => {
     const content = mapContentRef.current;
     if (!content || view !== "Site map") return;
@@ -2241,11 +2421,7 @@ export default function HomeRoute() {
                       >
                         <button
                           type="button"
-                          onClick={() =>
-                            setMapZoom((zoom) =>
-                              Math.max(MAP_ZOOM_MIN, Math.round(zoom / 1.25)),
-                            )
-                          }
+                          onClick={() => zoomMapTo(currentMapZoom() / 1.25)}
                           disabled={mapZoom <= MAP_ZOOM_MIN}
                           aria-label="Zoom out"
                           className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700 disabled:opacity-40"
@@ -2258,31 +2434,32 @@ export default function HomeRoute() {
                           min={MAP_ZOOM_MIN}
                           max={MAP_ZOOM_MAX}
                           step={MAP_ZOOM_STEP}
-                          value={mapZoom}
+                          ref={zoomSliderRef}
+                          defaultValue={mapZoom}
                           onChange={(event) =>
-                            setMapZoom(Number(event.target.value))
+                            zoomMapTo(Number(event.target.value))
                           }
                           className="w-32 accent-[#142b3c]"
                         />
                         <button
                           type="button"
-                          onClick={() =>
-                            setMapZoom((zoom) =>
-                              Math.min(MAP_ZOOM_MAX, Math.round(zoom * 1.25)),
-                            )
-                          }
+                          onClick={() => zoomMapTo(currentMapZoom() * 1.25)}
                           disabled={mapZoom >= MAP_ZOOM_MAX}
                           aria-label="Zoom in"
                           className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700 disabled:opacity-40"
                         >
                           +
                         </button>
-                        <span className="w-12 text-center text-xs font-semibold tabular-nums text-slate-600">
+                        <span
+                          ref={zoomTextRef}
+                          className="w-12 text-center text-xs font-semibold tabular-nums text-slate-600"
+                        >
                           {Math.round(mapZoom)}%
                         </span>
                         <button
                           type="button"
                           onClick={() => {
+                            cancelSmoothZoom();
                             setMapZoom(MAP_ZOOM_MIN);
                             if (mapViewportRef.current) {
                               mapViewportRef.current.scrollLeft = 0;
@@ -2479,6 +2656,7 @@ export default function HomeRoute() {
                             {mapLabels.map((label) => (
                               <div
                                 key={`label-${label.id}`}
+                                data-map-label=""
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   selectMapBuilding(label.id);
