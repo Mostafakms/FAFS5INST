@@ -271,7 +271,7 @@ export default function HomeRoute() {
       const { cx, cy, dist } = measure(event.touches);
       const prev = touchGesture.current;
       touchGesture.current = {
-        moved: prev ? prev.moved || event.touches.length > 1 : false,
+        moved: (prev ? prev.moved : false) || event.touches.length > 1,
         startX: prev ? prev.startX : cx,
         startY: prev ? prev.startY : cy,
         pinchDist: dist,
