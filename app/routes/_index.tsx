@@ -275,6 +275,10 @@ const STATUS_DEFINITIONS: { status: string; meaning: string }[] = [
       "Work has not started. It can start anytime and nobody is blocking it.",
   },
   {
+    status: "In progress",
+    meaning: "Work is currently underway on site.",
+  },
+  {
     status: "Hold",
     meaning: "Paused on purpose after work started. Reason is required.",
   },
@@ -1123,7 +1127,9 @@ export default function HomeRoute() {
       buildingNumber: buildingNumberDraft.trim(),
       name: buildingNameDraft.trim(),
       manualStatus: buildingStatusDraft || null,
-      statusReason: buildingReasonDraft.trim(),
+      statusReason: ["Hold", "Delayed"].includes(buildingStatusDraft)
+        ? buildingReasonDraft.trim()
+        : "",
       relativeWeight,
     });
   }
@@ -3093,6 +3099,7 @@ export default function HomeRoute() {
                           className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 px-3 text-xs outline-none focus:border-slate-400"
                         >
                           <option value="">Automatic from progress</option>
+                          <option value="In progress">In progress</option>
                           <option value="Removed from scope">
                             Removed from scope
                           </option>
