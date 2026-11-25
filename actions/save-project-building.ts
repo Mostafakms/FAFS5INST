@@ -11,7 +11,7 @@ export default defineAction({
     buildingId: z.string().min(1).optional(),
     buildingNumber: z.string().trim().min(1).max(60),
     name: z.string().trim().min(1).max(200),
-    manualStatus: z.enum(["Removed from scope", "Hold", "Delayed"]).nullable(),
+    manualStatus: z.enum(["Removed from scope", "In progress", "Hold", "Delayed"]).nullable(),
     statusReason: z.string().max(1000),
     relativeWeight: z.number().positive().max(1000000),
   }),
