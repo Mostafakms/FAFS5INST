@@ -15,7 +15,7 @@ export default defineAction({
     types: z.array(z.enum(TYPES)).max(3),
     comment: z.string().max(2000),
     progress: z
-      .record(z.enum(TYPES), z.array(z.number().min(0).max(100)).length(9))
+      .record(z.enum(TYPES), z.array(z.number().min(0).max(100)).length(4))
       .optional(),
   }),
   requiresAuth: true,
@@ -66,7 +66,7 @@ export default defineAction({
             progress: Object.fromEntries(
               unique.map((type) => [
                 type,
-                progress?.[type] ?? Array.from({ length: 9 }, () => 0),
+                progress?.[type] ?? Array.from({ length: 4 }, () => 0),
               ]),
             ),
           },
