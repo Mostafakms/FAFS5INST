@@ -520,6 +520,8 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  "Alarm progress": "تقدم الإنذار",
+  "Project overall progress": "الإجمالي العام للمشروع",
   "Workshop drawings": "الرسومات التنفيذية (Workshop)",
   Installation: "التركيب",
   Commissioning: "التشغيل والاختبار (Commissioning)",
@@ -4753,6 +4755,8 @@ function reportDateStamp() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Weights of the project-level overall progress. Change here to reconfigure.
+const OVERALL_WEIGHTS = { alarm: 0.6, firefighting: 0.4 };
 const FIREFIGHTING_TYPES = ["Water Spray", "FM-200", "CO2"];
 const FIREFIGHTING_ACTIVITIES = [
   "Workshop drawings",
@@ -5154,6 +5158,9 @@ function ReportsView({
         : 0,
     };
   });
+  const overallCombined =
+    data.overall * OVERALL_WEIGHTS.alarm +
+    ffOverall * OVERALL_WEIGHTS.firefighting;
   const ffHead = [
     "Number",
     "Building",
@@ -5183,7 +5190,12 @@ function ReportsView({
   const weeklyCsv = () => {
     const rows: (string | number)[][] = [
       ["Weekly meeting report", stamp],
-      ["Overall progress %", data.overall.toFixed(1)],
+      ["Alarm progress %", data.overall.toFixed(1)],
+      ["Firefighting progress %", ffOverall.toFixed(1)],
+      [
+        `Overall progress % (${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting)`,
+        overallCombined.toFixed(1),
+      ],
       [],
       ["Status", "Buildings", "Average progress %"],
       ...statusRows.map((r) => [
@@ -5258,11 +5270,27 @@ function ReportsView({
             </button>
           </div>
         </div>
-        <div className="mt-4 text-xs font-semibold text-slate-500">
-          Overall progress
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {[
+            ["Alarm progress", data.overall],
+            ["Firefighting progress", ffOverall],
+            ["Project overall progress", overallCombined],
+          ].map(([label, value]) => (
+            <div
+              key={label as string}
+              className="rounded-lg border border-slate-200 p-3"
+            >
+              <div className="text-[11px] font-semibold text-slate-500">
+                {label as string}
+              </div>
+              <div className="text-xl font-bold text-[#142636]" dir="ltr">
+                {pct(value as number)}
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="text-2xl font-bold text-[#142636]" dir="ltr">
-          {pct(data.overall)}
+        <div className="mt-1 text-[11px] text-slate-400" dir="ltr">
+          {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting`}
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-start text-xs">
