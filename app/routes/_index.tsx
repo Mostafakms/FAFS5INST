@@ -520,6 +520,9 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  "Has firefighting": "فيه إطفاء",
+  "Firefighting buildings by type": "مباني الإطفاء حسب النوع",
+  Firefighting: "الإطفاء",
   "Alarm progress": "تقدم الإنذار",
   "Project overall progress": "الإجمالي العام للمشروع",
   "Workshop drawings": "الرسومات التنفيذية (Workshop)",
@@ -529,7 +532,6 @@ const AR_OVERRIDES: Record<string, string> = {
   "Separate from alarm progress.": "منفصل عن تقدم الإنذار.",
   "Firefighting progress": "تقدم الإطفاء",
   "No firefighting buildings.": "لا توجد مباني بها إطفاء.",
-  Firefighting: "الإطفاء",
   "Add firefighting": "إضافة إطفاء",
   "Edit firefighting": "تعديل الإطفاء",
   "Save firefighting": "حفظ الإطفاء",
@@ -785,6 +787,7 @@ export default function HomeRoute() {
   const [selected, setSelected] = useState<Building | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [ffFilter, setFfFilter] = useState("all");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lang, setLang] = useState<AppLang>("en");
   const translatedNodes = useRef(new Map<Node, { src: string; out: string }>());
@@ -1626,6 +1629,7 @@ export default function HomeRoute() {
           statusFilter.length === 0 ||
           statusFilter.includes(buildingStatus(building)),
       )
+      .filter((building) => matchesFirefightingFilter(building, ffFilter))
       .sort((a, b) => {
         if (a.id === selectedMapBuildingId) return -1;
         if (b.id === selectedMapBuildingId) return 1;
@@ -1783,6 +1787,7 @@ export default function HomeRoute() {
     mapZoom,
     selectedMapBuildingId,
     statusFilter,
+    ffFilter,
   ]);
   const mapBuildingSearchResults = useMemo(() => {
     const query = mapBuildingSearch.trim().toLowerCase();
@@ -1797,12 +1802,39 @@ export default function HomeRoute() {
         (building) =>
           (statusFilter.length === 0 ||
             statusFilter.includes(buildingStatus(building))) &&
+          matchesFirefightingFilter(building, ffFilter) &&
           `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${statusLabel(buildingStatus(building))} ${building.statusReason} ${parseFirefighting(building.notes).types.join(" ")} ${parseFirefighting(building.notes).comment}`
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
-    [data?.buildings, search, statusFilter],
+    [data?.buildings, search, statusFilter, ffFilter],
   );
+  const ffDash = useMemo(() => {
+    const active = (data?.buildings ?? []).filter((b) => !isRemoved(b));
+    const ffs = active
+      .map((b) => ({ b, ff: parseFirefighting(b.notes) }))
+      .filter((x) => x.ff.types.length > 0);
+    const avg = ffs.length
+      ? ffs.reduce((sum, x) => sum + firefightingProgressOf(x.ff), 0) /
+        ffs.length
+      : 0;
+    const alarm = data?.overall ?? 0;
+    return {
+      total: ffs.length,
+      avg,
+      combined:
+        alarm * OVERALL_WEIGHTS.alarm + avg * OVERALL_WEIGHTS.firefighting,
+      types: FIREFIGHTING_TYPES.map((type) => {
+        const list = ffs.filter((x) => x.ff.types.includes(type));
+        return {
+          type,
+          count: list.length,
+          finished: list.filter((x) => firefightingProgressOf(x.ff) >= 99.99)
+            .length,
+        };
+      }),
+    };
+  }, [data?.buildings, data?.overall]);
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const building of data?.buildings ?? []) {
@@ -2548,6 +2580,57 @@ export default function HomeRoute() {
             <>
               {view === "Dashboard" && (
                 <>
+                  <section className="grid gap-3 sm:grid-cols-3">
+                    {(
+                      [
+                        ["Alarm progress", data.overall],
+                        ["Firefighting progress", ffDash.avg],
+                        ["Project overall progress", ffDash.combined],
+                      ] as [string, number][]
+                    ).map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-slate-200 bg-white p-4"
+                      >
+                        <div className="text-[11px] font-semibold text-slate-500">
+                          {label}
+                        </div>
+                        <div
+                          className="text-2xl font-bold text-[#142636]"
+                          dir="ltr"
+                        >
+                          {pct(value)}
+                        </div>
+                        <ProgressBar value={value} />
+                      </div>
+                    ))}
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-3">
+                      <div className="text-[11px] font-semibold text-slate-500">
+                        Firefighting buildings by type
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        {ffDash.types.map((t) => (
+                          <div
+                            key={t.type}
+                            className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                          >
+                            <span className="font-semibold text-slate-700">
+                              {t.type}
+                            </span>
+                            <span className="tabular-nums text-slate-600">
+                              {`${t.count} buildings · ${t.finished} finished`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div
+                        className="mt-2 text-[11px] text-slate-400"
+                        dir="ltr"
+                      >
+                        {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting · ${ffDash.total} buildings with firefighting`}
+                      </div>
+                    </div>
+                  </section>
                   <section className="grid gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
                     <div className="relative overflow-hidden rounded-xl bg-[#142b3c] p-5 text-white shadow-[0_4px_16px_rgba(20,43,60,0.12)]">
                       <div className="absolute -right-5 -top-10 h-32 w-32 rounded-full border-[18px] border-white/[0.04]" />
@@ -2916,6 +2999,12 @@ export default function HomeRoute() {
                       onChange={setStatusFilter}
                       counts={statusCounts}
                     />
+                    <div className="mt-2">
+                      <FirefightingFilterChips
+                        value={ffFilter}
+                        onChange={setFfFilter}
+                      />
+                    </div>
                   </div>
                   <BuildingTable
                     buildings={filtered}
@@ -3105,6 +3194,12 @@ export default function HomeRoute() {
                           onChange={setStatusFilter}
                           counts={statusCounts}
                         />
+                        <div className="mt-1.5">
+                          <FirefightingFilterChips
+                            value={ffFilter}
+                            onChange={setFfFilter}
+                          />
+                        </div>
                       </div>
                       <details className="w-full">
                         <summary className="cursor-pointer font-semibold text-slate-600">
@@ -3414,6 +3509,12 @@ export default function HomeRoute() {
                             onChange={setStatusFilter}
                             counts={statusCounts}
                           />
+                          <div className="mt-1.5">
+                            <FirefightingFilterChips
+                              value={ffFilter}
+                              onChange={setFfFilter}
+                            />
+                          </div>
                         </div>
                       )}
                       <div
@@ -3422,6 +3523,36 @@ export default function HomeRoute() {
                         }
                         className={`relative ${mapFullscreen ? "min-h-0 flex-1" : "mt-3 max-h-[80vh] w-full"}`}
                       >
+                        {selectedMapBuilding &&
+                          parseFirefighting(selectedMapBuilding.notes).types
+                            .length > 0 && (
+                            <section
+                              className="pointer-events-auto absolute bottom-3 left-3 z-30 w-[170px] rounded-lg border border-red-200 bg-white/70 p-2 shadow-xl backdrop-blur-sm"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-bold text-red-700">
+                                <span>Firefighting</span>
+                                <span dir="ltr" className="tabular-nums">
+                                  {firefightingProgressOf(
+                                    parseFirefighting(
+                                      selectedMapBuilding.notes,
+                                    ),
+                                  ).toFixed(1)}
+                                  %
+                                </span>
+                              </div>
+                              <ProgressBar
+                                value={firefightingProgressOf(
+                                  parseFirefighting(selectedMapBuilding.notes),
+                                )}
+                              />
+                              <div className="mt-1 text-[10px] text-slate-600">
+                                {parseFirefighting(
+                                  selectedMapBuilding.notes,
+                                ).types.join(" + ")}
+                              </div>
+                            </section>
+                          )}
                         {selectedMapBuilding && (
                           <section
                             className="pointer-events-auto absolute right-3 top-3 z-30 max-h-[75%] w-[360px] max-w-[calc(100vw-1.5rem)] origin-top-right scale-75 overflow-y-auto rounded-lg border border-slate-200 bg-white/30 p-3 shadow-xl backdrop-blur-sm"
@@ -3449,8 +3580,8 @@ export default function HomeRoute() {
                                     buildingStatus(selectedMapBuilding),
                                   )}
                                   <span>·</span>
+                                  Alarm{" "}
                                   {selectedMapBuilding.progress.toFixed(1)}%
-                                  overall
                                 </div>
                               </div>
                               <button
@@ -3481,6 +3612,28 @@ export default function HomeRoute() {
                                 ),
                               )}
                             </div>
+                            {(() => {
+                              const mff = parseFirefighting(
+                                selectedMapBuilding.notes,
+                              );
+                              const hasFf = mff.types.length > 0;
+                              return (
+                                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2 text-[11px]">
+                                  <span className="rounded-md bg-[#142b3c] px-2 py-1 font-semibold text-white">
+                                    Overall{" "}
+                                    {buildingOverallOf(
+                                      selectedMapBuilding,
+                                    ).toFixed(1)}
+                                    %
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {hasFf
+                                      ? `${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting`
+                                      : "Alarm only"}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                             {mapDrawing && (
                               <div className="mt-2 text-[10px] text-slate-400">
                                 Click at least 3 points on the map, then finish
@@ -3538,7 +3691,8 @@ export default function HomeRoute() {
                                   (statusFilter.length === 0 ||
                                     statusFilter.includes(
                                       buildingStatus(building),
-                                    )),
+                                    )) &&
+                                  matchesFirefightingFilter(building, ffFilter),
                               )
                               .map((building) => {
                                 const points = building.geometry!.points;
@@ -4794,6 +4948,55 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
 // One firefighting progress per building: the four activities, equal weights.
 const firefightingProgressOf = (ff: FirefightingData) =>
   ff.progress.reduce((sum, v) => sum + v, 0) / FIREFIGHTING_ACTIVITIES.length;
+
+const buildingOverallOf = (b: Building) => {
+  const ff = parseFirefighting(b.notes);
+  return ff.types.length > 0
+    ? b.progress * OVERALL_WEIGHTS.alarm +
+        firefightingProgressOf(ff) * OVERALL_WEIGHTS.firefighting
+    : b.progress;
+};
+// "all" | "any" | one of FIREFIGHTING_TYPES
+const matchesFirefightingFilter = (b: Building, filter: string) => {
+  if (filter === "all") return true;
+  const types = parseFirefighting(b.notes).types;
+  return filter === "any" ? types.length > 0 : types.includes(filter);
+};
+
+function FirefightingFilterChips({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const chip = (active: boolean) =>
+    `inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-semibold ${active ? "border-red-700 bg-red-700 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`;
+  const options: [string, string][] = [
+    ["all", "All buildings"],
+    ["any", "Has firefighting"],
+    ...FIREFIGHTING_TYPES.map((t): [string, string] => [t, t]),
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Filter by firefighting"
+      className="flex flex-wrap gap-1.5"
+    >
+      {options.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={value === key}
+          onClick={() => onChange(key)}
+          className={chip(value === key)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function FirefightingSection({
   building,
