@@ -64,7 +64,7 @@ export default defineAction({
       holdCount: summarized.filter((building) => building.manualStatus === "Hold").length,
       delayedCount: summarized.filter((building) => building.manualStatus === "Delayed").length,
       completedCount: activeBuildings.filter((building) => building.progress >= 99.99 && !building.manualStatus).length,
-      inProgressCount: activeBuildings.filter((building) => !building.manualStatus && building.progress > 0 && building.progress < 99.99).length,
+      inProgressCount: activeBuildings.filter((building) => building.manualStatus === "In progress" || (!building.manualStatus && building.progress > 0 && building.progress < 99.99)).length,
       notStartedCount: activeBuildings.filter((building) => !building.manualStatus && building.progress === 0).length,
       activities: activities.map((activity) => {
         const contributing = activeBuildings.reduce((sum, building) => sum + (building.activities.find((entry) => entry.id === activity.id)?.progress ?? 0), 0);
