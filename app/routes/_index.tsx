@@ -1501,7 +1501,7 @@ export default function HomeRoute() {
         (h * aspect * viewport.clientWidth);
       const zoom = Math.min(
         MAP_ZOOM_MAX,
-        Math.max(MAP_ZOOM_MIN, Math.round(Math.min(zx, zy, 1200))),
+        Math.max(MAP_ZOOM_MIN, Math.round(Math.min(zx, zy, 700))),
       );
       flushSync(() => setMapZoom(zoom));
       mapZoomRef.current = zoom;
@@ -3148,7 +3148,7 @@ export default function HomeRoute() {
                             </div>
                           )}
                         </div>
-                        <label className="text-[11px] font-semibold text-slate-600">
+                        <label className="block w-full sm:inline sm:w-auto text-[11px] font-semibold text-slate-600">
                           Select building
                           <select
                             value={selectedMapBuildingId}
@@ -3158,7 +3158,7 @@ export default function HomeRoute() {
                               setMapDrawing(false);
                               setMapFeedback("");
                             }}
-                            className="ms-2 h-9 max-w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
+                            className="mt-1 block h-9 w-full rounded-lg sm:ms-2 sm:mt-0 sm:inline-block sm:w-auto border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
                           >
                             <option value="">Select a building…</option>
                             {data.buildings.map((building) => (
