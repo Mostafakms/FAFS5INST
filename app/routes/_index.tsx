@@ -2357,6 +2357,26 @@ export default function HomeRoute() {
                         <span>Active scope</span>
                         <span>{data.activeCount} buildings</span>
                       </div>
+                      <div className="mt-5 space-y-2 border-t border-white/10 pt-4 text-[12px]">
+                        {(
+                          [
+                            ["Active buildings", data.activeCount],
+                            ["Finished", statusStats["Finished"]?.count ?? 0],
+                            ["Paused", statusStats["Hold"]?.count ?? 0],
+                            ["Delayed", statusStats["Delayed"]?.count ?? 0],
+                          ] as [string, number][]
+                        ).map(([label, value]) => (
+                          <div
+                            key={label}
+                            className="flex items-center justify-between text-slate-300"
+                          >
+                            <span>{label}</span>
+                            <span className="font-semibold tabular-nums text-white">
+                              {value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
                       {(
