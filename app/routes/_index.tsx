@@ -4383,141 +4383,248 @@ function BuildingTable({
       </div>
     );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] border-collapse text-left">
-        <thead>
-          <tr className="bg-[#f8fafb] text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
-            <th className="px-5 py-3 md:px-6">
-              {sortButton("building", "Building")}
-            </th>
-            <th className="px-4 py-3">{sortButton("status", "Status")}</th>
-            <th className="w-[240px] px-4 py-3">
-              {sortButton("progress", "Progress")}
-            </th>
-            <th className="px-4 py-3">{sortButton("weight", "Weight")}</th>
-            <th className="px-4 py-3">Map assignment</th>
-            <th className="px-4 py-3">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {sortedBuildings.map((building) => (
-            <tr
-              key={building.id}
-              onClick={() => onOpen(building)}
-              className="cursor-pointer transition-colors hover:bg-[#f9fbfc]"
-            >
-              <td className="px-5 py-3.5 md:px-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-                    <IconBuilding size={15} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-[#243c4e]">
-                      {displayBuildingNumber(
-                        building.buildingNumber,
-                        building.name,
-                      )}
-                      <span className="ms-2 font-medium text-slate-600">
-                        {splitBuildingName(building.name).title}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[10px] text-slate-400">
-                      {`Updated ${mostRecentUpdate(building)}`}
-                    </div>
-                  </div>
-                </div>
-              </td>
-              <td className="px-4 py-3.5">
-                <div>
-                  <span
-                    className={`text-[11px] ${buildingStatus(building) === "Finished" ? "font-semibold text-emerald-700" : buildingStatus(building) === "Hold" || buildingStatus(building) === "Delayed" ? "font-semibold text-amber-700" : "text-slate-500"}`}
-                  >
-                    {statusLabel(buildingStatus(building))}
-                  </span>
-                  {building.statusReason && (
-                    <div className="mt-1 max-w-48 text-[10px] text-slate-400">
-                      {building.statusReason}
-                    </div>
-                  )}
-                </div>
-              </td>
-              <td className="px-4 py-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="min-w-[95px] flex-1">
-                    <ProgressBar value={building.progress} />
-                  </div>
-                  <span
-                    className={`w-11 text-right text-[11px] font-bold tabular-nums ${isRemoved(building) ? "text-slate-400" : "text-slate-700"}`}
-                  >
-                    {pct(building.progress)}
+    <>
+      <div className="divide-y divide-slate-100 md:hidden">
+        {sortedBuildings.map((building) => (
+          <div
+            key={building.id}
+            onClick={() => onOpen(building)}
+            className="cursor-pointer px-4 py-4 active:bg-[#f9fbfc]"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                <IconBuilding size={15} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-[#243c4e]">
+                  <bdi>
+                    {displayBuildingNumber(
+                      building.buildingNumber,
+                      building.name,
+                    )}
+                  </bdi>
+                  <span className="ms-2 font-medium text-slate-600">
+                    {splitBuildingName(building.name).title}
                   </span>
                 </div>
-              </td>
-              <td className="px-4 py-3.5 text-xs tabular-nums text-slate-600">
-                {Number(building.relativeWeight).toFixed(2)}
-              </td>
-              <td className="px-4 py-3.5">
-                {onLocate && (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onLocate(building);
-                    }}
-                    className="mb-1 flex items-center gap-1 whitespace-nowrap rounded-md border border-[#142b3c] bg-[#142b3c] px-2.5 py-1.5 text-[10px] font-semibold text-white hover:bg-[#1e3d54]"
-                  >
-                    Locate building
-                  </button>
-                )}
-                {onAssignOnMap && !building.geometry?.points.length && (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onAssignOnMap(building);
-                    }}
-                    className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#335a72] hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    Assign on map
-                  </button>
-                )}
-              </td>
-              <td className="px-4 py-3.5">
-                <div className="flex items-center gap-2">
-                  {onEdit && (
-                    <button
-                      type="button"
-                      aria-label={`Edit ${splitBuildingName(building.name).title}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onEdit(building);
-                      }}
-                      className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      <IconPencil size={15} />
-                    </button>
-                  )}
-                  {onDelete && (
-                    <button
-                      type="button"
-                      aria-label={`Delete ${splitBuildingName(building.name).title}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDelete(building);
-                      }}
-                      className="rounded p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-700"
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                  )}
-                  <IconChevronRight size={15} className="text-slate-300" />
+                <div className="mt-1 text-[10px] text-slate-400">
+                  {`Updated ${mostRecentUpdate(building)}`}
                 </div>
-              </td>
+              </div>
+              <span
+                className={`shrink-0 text-[11px] ${buildingStatus(building) === "Finished" ? "font-semibold text-emerald-700" : buildingStatus(building) === "Hold" || buildingStatus(building) === "Delayed" ? "font-semibold text-amber-700" : "text-slate-500"}`}
+              >
+                {statusLabel(buildingStatus(building))}
+              </span>
+            </div>
+            {building.statusReason && (
+              <div className="mt-2 text-[10px] text-slate-400">
+                {building.statusReason}
+              </div>
+            )}
+            <div className="mt-3 flex items-center gap-3">
+              <div className="flex-1">
+                <ProgressBar value={building.progress} />
+              </div>
+              <span className="text-[11px] font-bold tabular-nums text-slate-700">
+                {pct(building.progress)}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-slate-500">
+                Weight <bdi>{Number(building.relativeWeight).toFixed(2)}</bdi>
+              </span>
+              <span className="flex-1" />
+              {onLocate && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onLocate(building);
+                  }}
+                  className="whitespace-nowrap rounded-md bg-[#142b3c] px-3 py-2 text-[11px] font-semibold text-white"
+                >
+                  Locate building
+                </button>
+              )}
+              {onAssignOnMap && !building.geometry?.points.length && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAssignOnMap(building);
+                  }}
+                  className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-[#335a72]"
+                >
+                  Assign on map
+                </button>
+              )}
+              {onEdit && (
+                <button
+                  type="button"
+                  aria-label={`Edit ${splitBuildingName(building.name).title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit(building);
+                  }}
+                  className="rounded p-2 text-slate-500 hover:bg-slate-100"
+                >
+                  <IconPencil size={16} />
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  aria-label={`Delete ${splitBuildingName(building.name).title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(building);
+                  }}
+                  className="rounded p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700"
+                >
+                  <IconTrash size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[700px] border-collapse text-left">
+          <thead>
+            <tr className="bg-[#f8fafb] text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
+              <th className="px-5 py-3 md:px-6">
+                {sortButton("building", "Building")}
+              </th>
+              <th className="px-4 py-3">{sortButton("status", "Status")}</th>
+              <th className="w-[240px] px-4 py-3">
+                {sortButton("progress", "Progress")}
+              </th>
+              <th className="px-4 py-3">{sortButton("weight", "Weight")}</th>
+              <th className="px-4 py-3">Map assignment</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {sortedBuildings.map((building) => (
+              <tr
+                key={building.id}
+                onClick={() => onOpen(building)}
+                className="cursor-pointer transition-colors hover:bg-[#f9fbfc]"
+              >
+                <td className="px-5 py-3.5 md:px-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                      <IconBuilding size={15} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-[#243c4e]">
+                        {displayBuildingNumber(
+                          building.buildingNumber,
+                          building.name,
+                        )}
+                        <span className="ms-2 font-medium text-slate-600">
+                          {splitBuildingName(building.name).title}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400">
+                        {`Updated ${mostRecentUpdate(building)}`}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  <div>
+                    <span
+                      className={`text-[11px] ${buildingStatus(building) === "Finished" ? "font-semibold text-emerald-700" : buildingStatus(building) === "Hold" || buildingStatus(building) === "Delayed" ? "font-semibold text-amber-700" : "text-slate-500"}`}
+                    >
+                      {statusLabel(buildingStatus(building))}
+                    </span>
+                    {building.statusReason && (
+                      <div className="mt-1 max-w-48 text-[10px] text-slate-400">
+                        {building.statusReason}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-[95px] flex-1">
+                      <ProgressBar value={building.progress} />
+                    </div>
+                    <span
+                      className={`w-11 text-right text-[11px] font-bold tabular-nums ${isRemoved(building) ? "text-slate-400" : "text-slate-700"}`}
+                    >
+                      {pct(building.progress)}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5 text-xs tabular-nums text-slate-600">
+                  {Number(building.relativeWeight).toFixed(2)}
+                </td>
+                <td className="px-4 py-3.5">
+                  {onLocate && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onLocate(building);
+                      }}
+                      className="mb-1 flex items-center gap-1 whitespace-nowrap rounded-md border border-[#142b3c] bg-[#142b3c] px-2.5 py-1.5 text-[10px] font-semibold text-white hover:bg-[#1e3d54]"
+                    >
+                      Locate building
+                    </button>
+                  )}
+                  {onAssignOnMap && !building.geometry?.points.length && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onAssignOnMap(building);
+                      }}
+                      className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#335a72] hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      Assign on map
+                    </button>
+                  )}
+                </td>
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-2">
+                    {onEdit && (
+                      <button
+                        type="button"
+                        aria-label={`Edit ${splitBuildingName(building.name).title}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEdit(building);
+                        }}
+                        className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      >
+                        <IconPencil size={15} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        aria-label={`Delete ${splitBuildingName(building.name).title}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDelete(building);
+                        }}
+                        className="rounded p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        <IconTrash size={15} />
+                      </button>
+                    )}
+                    <IconChevronRight size={15} className="text-slate-300" />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
