@@ -4879,7 +4879,7 @@ function FirefightingSection({
             </div>
           </div>
           {current.comment && (
-            <p className="text-xs leading-5 text-slate-600">
+            <p className="whitespace-pre-line text-xs leading-5 text-slate-600">
               {current.comment}
             </p>
           )}
