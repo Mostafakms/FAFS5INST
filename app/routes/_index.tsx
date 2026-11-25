@@ -60,6 +60,7 @@ type Building = {
   manualStatus: string | null;
   statusReason: string;
   relativeWeight: string;
+  notes?: string;
   progress: number;
   geometry: { points: MapPoint[] } | null;
   activities: ProgressEntry[];
@@ -519,6 +520,20 @@ function translateToArabic(text: string) {
 }
 const I18N_ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const AR_OVERRIDES: Record<string, string> = {
+  "Workshop drawings": "الرسومات التنفيذية (Workshop)",
+  Installation: "التركيب",
+  Commissioning: "التشغيل والاختبار (Commissioning)",
+  "Firefighting building progress": "تقدم الإطفاء في المبنى",
+  "Separate from alarm progress.": "منفصل عن تقدم الإنذار.",
+  "Firefighting progress": "تقدم الإطفاء",
+  "No firefighting buildings.": "لا توجد مباني بها إطفاء.",
+  Firefighting: "الإطفاء",
+  "Add firefighting": "إضافة إطفاء",
+  "Edit firefighting": "تعديل الإطفاء",
+  "Save firefighting": "حفظ الإطفاء",
+  "Remove firefighting": "إزالة الإطفاء",
+  "No firefighting system.": "لا يوجد نظام إطفاء.",
+  "Exact location (room or transformer)": "المكان بالظبط (الغرفة أو المحول)",
   "No buildings in this group.": "لا توجد مبانٍ في هذه المجموعة.",
   "Weekly meeting report": "تقرير اجتماع الأسبوع",
   "Print / Save as PDF": "طباعة / حفظ PDF",
@@ -1424,6 +1439,39 @@ export default function HomeRoute() {
     },
     onError: (error) => setBuildingFeedback(error.message),
   });
+  const [firefightingFeedback, setFirefightingFeedback] = useState("");
+  const saveFirefightingMutation = useActionMutation<
+    unknown,
+    {
+      buildingId: string;
+      types: string[];
+      comment: string;
+      progress: Record<string, number[]>;
+    },
+    "save-building-firefighting"
+  >("save-building-firefighting", {
+    onSuccess: async (_result, variables) => {
+      setFirefightingFeedback("");
+      setSelected((current) =>
+        current && current.id === variables.buildingId
+          ? {
+              ...current,
+              notes: variables.types.length
+                ? JSON.stringify({
+                    firefighting: {
+                      types: variables.types,
+                      comment: variables.comment.trim(),
+                      progress: variables.progress,
+                    },
+                  })
+                : "",
+            }
+          : current,
+      );
+      await dashboard.refetch();
+    },
+    onError: (error) => setFirefightingFeedback(error.message),
+  });
   const deleteBuildingMutation = useActionMutation<
     unknown,
     DeleteBuildingInput,
@@ -1747,7 +1795,7 @@ export default function HomeRoute() {
         (building) =>
           (statusFilter.length === 0 ||
             statusFilter.includes(buildingStatus(building))) &&
-          `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${statusLabel(buildingStatus(building))} ${building.statusReason}`
+          `${building.buildingNumber} ${building.name} ${buildingStatus(building)} ${statusLabel(buildingStatus(building))} ${building.statusReason} ${parseFirefighting(building.notes).types.join(" ")} ${parseFirefighting(building.notes).comment}`
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
@@ -4152,6 +4200,20 @@ export default function HomeRoute() {
                           </strong>
                         </div>
                       </div>
+                      <FirefightingSection
+                        building={selected}
+                        canEdit={data?.userRole === "Site Manager"}
+                        saving={saveFirefightingMutation.isPending}
+                        feedback={firefightingFeedback}
+                        onSave={(types, comment, progress) =>
+                          saveFirefightingMutation.mutate({
+                            buildingId: selected.id,
+                            types,
+                            comment,
+                            progress,
+                          })
+                        }
+                      />
                       {isRemoved(selected) && (
                         <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                           Removed from Scope — this building is excluded from
@@ -4691,6 +4753,264 @@ function reportDateStamp() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const FIREFIGHTING_TYPES = ["Water Spray", "FM-200", "CO2"];
+const FIREFIGHTING_ACTIVITIES = [
+  "Workshop drawings",
+  "Installation",
+  "Commissioning",
+  "As-built",
+];
+type FirefightingData = {
+  types: string[];
+  comment: string;
+  progress: Record<string, number[]>;
+};
+function parseFirefighting(notes: string | undefined): FirefightingData {
+  const empty: FirefightingData = { types: [], comment: "", progress: {} };
+  if (!notes) return empty;
+  try {
+    const parsed = JSON.parse(notes);
+    const ff = parsed?.firefighting;
+    if (!ff || !Array.isArray(ff.types)) return empty;
+    const progress: Record<string, number[]> = {};
+    for (const type of FIREFIGHTING_TYPES) {
+      const raw = ff.progress?.[type];
+      progress[type] = FIREFIGHTING_ACTIVITIES.map((_, i) => {
+        const n = Number(Array.isArray(raw) ? raw[i] : 0);
+        return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+      });
+    }
+    return {
+      types: ff.types.filter(
+        (t: unknown): t is string => typeof t === "string",
+      ),
+      comment: typeof ff.comment === "string" ? ff.comment : "",
+      progress,
+    };
+  } catch {
+    return empty;
+  }
+}
+// Equal weights across the 9 firefighting activities.
+const firefightingTypeProgress = (values: number[] | undefined) =>
+  values && values.length
+    ? values.reduce((sum, v) => sum + v, 0) / FIREFIGHTING_ACTIVITIES.length
+    : 0;
+
+const firefightingBuildingProgress = (ff: FirefightingData) =>
+  ff.types.length
+    ? ff.types.reduce(
+        (sum, type) => sum + firefightingTypeProgress(ff.progress[type]),
+        0,
+      ) / ff.types.length
+    : 0;
+
+function FirefightingSection({
+  building,
+  canEdit,
+  saving,
+  feedback,
+  onSave,
+}: {
+  building: Building;
+  canEdit: boolean;
+  saving: boolean;
+  feedback: string;
+  onSave: (
+    types: string[],
+    comment: string,
+    progress: Record<string, number[]>,
+  ) => void;
+}) {
+  const current = parseFirefighting(building.notes);
+  const [editing, setEditing] = useState(false);
+  const [types, setTypes] = useState<string[]>(current.types);
+  const [comment, setComment] = useState(current.comment);
+  const [progress, setProgress] = useState<Record<string, number[]>>(
+    current.progress,
+  );
+  const reset = () => {
+    setEditing(false);
+    setTypes(current.types);
+    setComment(current.comment);
+    setProgress(current.progress);
+  };
+  useEffect(() => {
+    reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [building.id, building.notes]);
+  const has = current.types.length > 0;
+  if (!has && !canEdit) return null;
+  const setValue = (type: string, index: number, raw: string) => {
+    const n = Math.min(100, Math.max(0, Number(raw) || 0));
+    setProgress((prev) => ({
+      ...prev,
+      [type]: (prev[type] ?? FIREFIGHTING_ACTIVITIES.map(() => 0)).map(
+        (v, i) => (i === index ? n : v),
+      ),
+    }));
+  };
+  return (
+    <div className="mb-5 rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Firefighting
+        </div>
+        {canEdit && !editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            {has ? "Edit firefighting" : "Add firefighting"}
+          </button>
+        )}
+      </div>
+      {!editing && has && (
+        <div className="mt-2 space-y-3">
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Firefighting building progress
+              </div>
+              <div className="text-xl font-bold text-[#1b3345]" dir="ltr">
+                {pct(firefightingBuildingProgress(current))}
+              </div>
+            </div>
+          </div>
+          {current.comment && (
+            <p className="text-xs leading-5 text-slate-600">
+              {current.comment}
+            </p>
+          )}
+          {current.types.map((type) => (
+            <div key={type} className="rounded-lg bg-[#f5f7f8] p-3">
+              <div className="flex items-center justify-between" dir="ltr">
+                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold text-red-700">
+                  {type}
+                </span>
+                <span className="text-sm font-bold text-[#1b3345]">
+                  {pct(firefightingTypeProgress(current.progress[type]))}
+                </span>
+              </div>
+              <div className="mt-2 space-y-1">
+                {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                  <div
+                    key={name}
+                    className="flex items-baseline justify-between gap-3 text-[11px]"
+                  >
+                    <span className="text-slate-500">{name}</span>
+                    <span className="font-semibold text-slate-700" dir="ltr">
+                      {(current.progress[type]?.[i] ?? 0).toFixed(0)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!editing && !has && (
+        <p className="mt-2 text-xs text-slate-400">No firefighting system.</p>
+      )}
+      {editing && (
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-2" dir="ltr">
+            {FIREFIGHTING_TYPES.map((type) => {
+              const on = types.includes(type);
+              return (
+                <label
+                  key={type}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${on ? "border-red-300 bg-red-50 text-red-700" : "border-slate-200 text-slate-600"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() =>
+                      setTypes((prev) =>
+                        on ? prev.filter((t) => t !== type) : [...prev, type],
+                      )
+                    }
+                  />
+                  {type}
+                </label>
+              );
+            })}
+          </div>
+          <label className="block text-[11px] font-semibold text-slate-500">
+            Exact location (room or transformer)
+            <textarea
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+              rows={3}
+              maxLength={2000}
+              className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs font-normal text-slate-700"
+            />
+          </label>
+          {FIREFIGHTING_TYPES.filter((t) => types.includes(t)).map((type) => (
+            <div key={type} className="rounded-lg bg-[#f5f7f8] p-3">
+              <div className="text-[11px] font-bold text-slate-700" dir="ltr">
+                {type}
+              </div>
+              <div className="mt-2 space-y-1.5">
+                {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                  <label
+                    key={name}
+                    className="flex items-center justify-between gap-3 text-[11px] text-slate-500"
+                  >
+                    <span>{name}</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={100}
+                      step={5}
+                      dir="ltr"
+                      value={progress[type]?.[i] ?? 0}
+                      onChange={(event) =>
+                        setValue(type, i, event.target.value)
+                      }
+                      className="w-16 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+          {feedback && <p className="text-xs text-red-600">{feedback}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => onSave(types, comment, progress)}
+              className="rounded-lg bg-[#142b3c] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+            >
+              Save firefighting
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600"
+            >
+              Cancel
+            </button>
+            {has && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => onSave([], "", {})}
+                className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 disabled:opacity-60"
+              >
+                Remove firefighting
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReportsView({
   data,
   onOpen,
@@ -4847,6 +5167,55 @@ function ReportsView({
     { title: "In progress buildings", statuses: ["In progress"] },
     { title: "Finished buildings", statuses: ["Finished"] },
   ];
+  const ffBuildings = active
+    .map((b) => ({ b, ff: parseFirefighting(b.notes) }))
+    .filter((x) => x.ff.types.length > 0)
+    .sort((x, y) => byNumber(x.b, y.b));
+  const ffOverall = ffBuildings.length
+    ? ffBuildings.reduce(
+        (sum, x) => sum + firefightingBuildingProgress(x.ff),
+        0,
+      ) / ffBuildings.length
+    : 0;
+  const ffTypeRows = FIREFIGHTING_TYPES.map((type) => {
+    const list = ffBuildings.filter((x) => x.ff.types.includes(type));
+    return {
+      type,
+      count: list.length,
+      avg: list.length
+        ? list.reduce(
+            (sum, x) => sum + firefightingTypeProgress(x.ff.progress[type]),
+            0,
+          ) / list.length
+        : 0,
+    };
+  });
+  const ffHead = [
+    "Number",
+    "Building",
+    "Types",
+    "Location",
+    "Firefighting progress %",
+    ...FIREFIGHTING_TYPES.flatMap((type) => [
+      `${type} %`,
+      ...FIREFIGHTING_ACTIVITIES.map((a) => `${type}: ${a} %`),
+    ]),
+  ];
+  const ffRow = (x: { b: Building; ff: FirefightingData }) => [
+    displayBuildingNumber(x.b.buildingNumber, x.b.name),
+    splitBuildingName(x.b.name).title,
+    x.ff.types.join(" + "),
+    x.ff.comment,
+    firefightingBuildingProgress(x.ff).toFixed(1),
+    ...FIREFIGHTING_TYPES.flatMap((type) =>
+      x.ff.types.includes(type)
+        ? [
+            firefightingTypeProgress(x.ff.progress[type]).toFixed(1),
+            ...x.ff.progress[type].map((v) => v.toFixed(0)),
+          ]
+        : ["", ...FIREFIGHTING_ACTIVITIES.map(() => "")],
+    ),
+  ];
   const weeklyList = (statuses: string[]) =>
     active.filter((b) => statuses.includes(buildingStatus(b))).sort(byNumber);
   const activityNames = data.activities.map((a) => a.name);
@@ -4878,6 +5247,14 @@ function ReportsView({
           ...list.map(detailRow),
         ];
       }),
+      [],
+      ["Firefighting (separate from alarm progress)"],
+      ["Overall firefighting progress %", ffOverall.toFixed(1)],
+      ["Type", "Buildings", "Average progress %"],
+      ...ffTypeRows.map((r) => [r.type, r.count, r.avg.toFixed(1)]),
+      [],
+      ffHead,
+      ...ffBuildings.map(ffRow),
     ];
     downloadCsv(`weekly-meeting-report-${stamp}.csv`, rows);
   };
@@ -5021,6 +5398,87 @@ function ReportsView({
             </div>
           );
         })}
+        <div className="mt-8 break-before-page">
+          <div className="text-xs font-bold text-[#1c3041]">
+            Firefighting progress
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            Separate from alarm progress.
+          </div>
+          <div className="mt-2 text-2xl font-bold text-[#142636]" dir="ltr">
+            {pct(ffOverall)}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-xs" dir="ltr">
+            {ffTypeRows.map((r) => (
+              <div
+                key={r.type}
+                className="rounded-lg border border-slate-200 p-2"
+              >
+                <div className="font-semibold text-slate-700">{r.type}</div>
+                <div className="text-slate-500">{`${r.count} buildings`}</div>
+                <div className="font-bold text-[#1b3345]">{pct(r.avg)}</div>
+              </div>
+            ))}
+          </div>
+          {ffBuildings.length === 0 ? (
+            <div className="mt-2 text-xs text-slate-400">
+              No firefighting buildings.
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {ffBuildings.map((x) => (
+                <div
+                  key={x.b.id}
+                  className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800" dir="ltr">
+                      {displayBuildingLine(x.b.buildingNumber, x.b.name)}
+                    </span>
+                    <span className="font-semibold text-slate-700" dir="ltr">
+                      {pct(firefightingBuildingProgress(x.ff))}
+                    </span>
+                  </div>
+                  {x.ff.comment && (
+                    <div className="mt-1 text-slate-500">{x.ff.comment}</div>
+                  )}
+                  {x.ff.types.map((type) => (
+                    <div
+                      key={type}
+                      className="mt-2 border-t border-slate-100 pt-2"
+                    >
+                      <div
+                        className="flex justify-between font-semibold text-red-700"
+                        dir="ltr"
+                      >
+                        <span>{type}</span>
+                        <span>
+                          {pct(firefightingTypeProgress(x.ff.progress[type]))}
+                        </span>
+                      </div>
+                      <div className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-3">
+                        {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                          <div
+                            key={name}
+                            className="flex items-baseline justify-between gap-2"
+                          >
+                            <span className="text-slate-500">{name}</span>
+                            <span
+                              className="font-semibold text-slate-700"
+                              dir="ltr"
+                            >
+                              {(x.ff.progress[type]?.[i] ?? 0).toFixed(0)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 print:hidden">
         {downloads.map((d) => (
