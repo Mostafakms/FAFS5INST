@@ -14,9 +14,7 @@ export default defineAction({
     buildingId: z.string().min(1),
     types: z.array(z.enum(TYPES)).max(3),
     comment: z.string().max(2000),
-    progress: z
-      .record(z.enum(TYPES), z.array(z.number().min(0).max(100)).length(4))
-      .optional(),
+    progress: z.array(z.number().min(0).max(100)).length(4).optional(),
   }),
   requiresAuth: true,
   run: async ({ buildingId, types, comment, progress }) => {
@@ -63,12 +61,7 @@ export default defineAction({
           firefighting: {
             types: unique,
             comment: comment.trim(),
-            progress: Object.fromEntries(
-              unique.map((type) => [
-                type,
-                progress?.[type] ?? Array.from({ length: 4 }, () => 0),
-              ]),
-            ),
+            progress: progress ?? [0, 0, 0, 0],
           },
         })
       : "";
