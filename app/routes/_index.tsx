@@ -2383,11 +2383,11 @@ export default function HomeRoute() {
                         <div
                           ref={mapViewportRef}
                           style={{ touchAction: "none" }}
-                          className={`absolute inset-0 overflow-auto ${mapFullscreen ? "rounded-none border-0 bg-slate-950" : "rounded-xl border border-slate-200 bg-slate-50"} ${mapDragging ? "cursor-grabbing" : mapPanMode ? "cursor-grab" : mapDrawing && data.userRole === "Site Manager" ? "cursor-crosshair" : ""}`}
+                          className={`absolute inset-0 overflow-auto ${mapFullscreen ? "flex rounded-none border-0 bg-slate-950" : "rounded-xl border border-slate-200 bg-slate-50"} ${mapDragging ? "cursor-grabbing" : mapPanMode ? "cursor-grab" : mapDrawing && data.userRole === "Site Manager" ? "cursor-crosshair" : ""}`}
                         >
                           <div
                             ref={mapContentRef}
-                            className="relative max-w-none shrink-0"
+                            className={`relative max-w-none shrink-0 ${mapFullscreen ? "m-auto" : ""}`}
                             style={{
                               width: `${mapZoom}%`,
                               touchAction: "none",
