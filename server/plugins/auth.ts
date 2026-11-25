@@ -84,6 +84,37 @@ const loginHtml = `<!doctype html>
 <script>${signInJourneyInlineScript()}</script>
 <script>
 (function(){
+  var lang="en";try{lang=localStorage.getItem("fafs-lang")||"en";}catch(e){}
+  var shell=document.querySelector(".shell");
+  var toggle=document.createElement("button");toggle.type="button";toggle.className="link";
+  toggle.textContent=lang==="ar"?"English":"العربية";
+  toggle.addEventListener("click",function(){try{localStorage.setItem("fafs-lang",lang==="ar"?"en":"ar");}catch(e){}location.reload();});
+  shell.appendChild(toggle);
+  if(lang!=="ar")return;
+  document.documentElement.lang="ar";document.documentElement.dir="rtl";document.title="تسجيل الدخول · APRC FAFS";
+  var D={
+    "Project Control · FAFS":"التحكم في المشروع · FAFS",
+    "Checking setup status…":"جارٍ التحقق من حالة الإعداد…",
+    "Setup status unavailable":"حالة الإعداد غير متاحة",
+    "We couldn't check whether this workspace needs its first Site Manager. Check your connection and try again.":"تعذر التحقق مما إذا كانت مساحة العمل تحتاج إلى أول مدير موقع. تأكد من الاتصال بالإنترنت وحاول مرة أخرى.",
+    "Retry":"إعادة المحاولة",
+    "Welcome back":"مرحبًا بعودتك",
+    "Sign in to view fire alarm system implementation progress.":"سجّل الدخول لمتابعة تقدم تنفيذ نظام إنذار الحريق.",
+    "Username":"اسم المستخدم",
+    "Password":"كلمة المرور",
+    "Sign in":"تسجيل الدخول",
+    "Signing in…":"جارٍ تسجيل الدخول…",
+    "Sign-in failed. Check your username and password and try again.":"فشل تسجيل الدخول. تأكد من اسم المستخدم وكلمة المرور وحاول مرة أخرى."
+  };
+  function tr(s){var t=s.trim();if(!t||!D[t])return null;return s.replace(t,function(){return D[t];});}
+  function node(n){var o=tr(n.data);if(o&&o!==n.data)n.data=o;}
+  function walk(r){if(r.nodeType===3){node(r);return;}for(var i=0;i<r.childNodes.length;i++)walk(r.childNodes[i]);}
+  walk(document.body);
+  new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==="characterData")node(m.target);else m.addedNodes.forEach(walk);});}).observe(document.body,{subtree:true,childList:true,characterData:true});
+})();
+</script>
+<script>
+(function(){
   var signin=document.getElementById('signin'), statusError=document.getElementById('statusError'), loading=document.getElementById('loadingStatus'), message=document.getElementById('message'), journey=__anCreateSignInJourney('', '/'), resumeHref=journey.journeyForLocation(window.location).resumeHref;
   function setBusy(button,busy,label){button.disabled=busy;if(busy)button.textContent=label;}
   function post(path,body,expectOk){return fetch(path,{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(function(response){return response.json().catch(function(){return null;}).then(function(data){if(!response.ok||!data||(expectOk!==false&&!data.ok))throw new Error('Request failed');return data;});});}
