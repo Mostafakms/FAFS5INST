@@ -139,10 +139,16 @@ const navItems = [
 const MAP_ZOOM_MIN = 100;
 const MAP_ZOOM_MAX = 2000;
 
-function splitBuildingName(name: string): {
+const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
+  Chillers: "Chillers Electrical Station",
+  "Unit 17": "Unit 17 Electrical Station A&B",
+};
+
+function splitBuildingName(rawName: string): {
   title: string;
   number: string | null;
 } {
+  const name = DISPLAY_NAME_OVERRIDES[rawName.trim()] ?? rawName;
   const match = name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (match && match[1].trim()) {
     return { title: match[1].trim(), number: match[2].trim() };
@@ -181,6 +187,8 @@ const SHEET_NUMBER_BY_CODE: Record<string, string> = {
   "B-033": "39/27",
   "B-061": "108/84",
   "B-074": "80/63",
+  الشيلرات: "74/57",
+  "وحده 17": "75/58",
 };
 
 function displayBuildingNumber(buildingNumber: string, name: string) {
