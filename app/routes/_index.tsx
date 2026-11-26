@@ -769,16 +769,85 @@ const STATUS_DEFINITIONS: { status: string; meaning: string }[] = [
 ];
 
 const pct = (value: number) => `${value.toFixed(1)}%`;
-const isRemoved = (building: Building) =>
+type ViewMode = "Total" | "Alarm" | "Firefighting";
+const VIEW_MODES: ViewMode[] = ["Total", "Alarm", "Firefighting"];
+// The selected view mode (Total / Alarm / Firefighting). HomeRoute sets it on
+// every render, so every page reads the same mode.
+let VIEW_MODE: ViewMode = "Total";
+const MODE_STORAGE_KEY = "fafs-view-mode";
+const ffOf = (building: Building) => parseFirefighting(building.notes);
+const hasFirefighting = (building: Building) => ffOf(building).types.length > 0;
+const isAlarmRemoved = (building: Building) =>
   building.manualStatus === "Removed from scope";
+const isRemoved = (building: Building) =>
+  VIEW_MODE === "Firefighting"
+    ? ffOf(building).status === "Removed from scope"
+    : isAlarmRemoved(building);
 const statusLabel = (status: string) => (status === "Hold" ? "Paused" : status);
+const statusFromProgress = (value: number) =>
+  value >= 99.99 ? "Finished" : value > 0 ? "In progress" : "Not started";
+const alarmStatusOf = (building: Building) =>
+  building.manualStatus ?? statusFromProgress(building.progress);
+// Progress of one building in the selected mode.
+const bProgress = (building: Building) =>
+  VIEW_MODE === "Alarm"
+    ? building.progress
+    : VIEW_MODE === "Firefighting"
+      ? firefightingProgressOf(ffOf(building))
+      : buildingOverallOf(building);
+// Status of one building in the selected mode.
 const buildingStatus = (building: Building) =>
-  building.manualStatus ??
-  (building.progress >= 99.99
-    ? "Finished"
-    : building.progress > 0
-      ? "In progress"
-      : "Not started");
+  VIEW_MODE === "Firefighting"
+    ? firefightingStatusOf(ffOf(building))
+    : (building.manualStatus ?? statusFromProgress(bProgress(building)));
+const modeProgressLabel = () =>
+  VIEW_MODE === "Alarm"
+    ? "Alarm progress"
+    : VIEW_MODE === "Firefighting"
+      ? "Firefighting progress"
+      : "Overall progress";
+type ActivityRow = { id: string; name: string; progress: number };
+const activitiesFor = (building: Building): ActivityRow[] =>
+  VIEW_MODE === "Firefighting"
+    ? FIREFIGHTING_ACTIVITIES.map((name, i) => ({
+        id: name,
+        name,
+        progress: ffOf(building).progress[i] ?? 0,
+      }))
+    : building.activities;
+
+function ModeSwitch({
+  value,
+  onChange,
+}: {
+  value: ViewMode;
+  onChange: (next: ViewMode) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Progress view"
+      className="inline-flex gap-1 rounded-xl border border-slate-200 bg-white p-1"
+    >
+      {VIEW_MODES.map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={value === tab}
+          onClick={() => onChange(tab)}
+          className={`h-9 rounded-lg px-4 text-xs font-semibold ${value === tab ? "bg-[#142b3c] text-white" : "text-slate-600 hover:bg-slate-50"}`}
+        >
+          {tab === "Total"
+            ? "Total"
+            : tab === "Alarm"
+              ? "Alarm"
+              : "Firefighting"}
+        </button>
+      ))}
+    </div>
+  );
+}
 const polygonColors: Record<string, { fill: string; stroke: string }> = {
   Finished: { fill: "rgba(16,185,129,0.2)", stroke: "#059669" },
   "In progress": { fill: "rgba(245,158,11,0.22)", stroke: "#d97706" },
@@ -796,7 +865,28 @@ export default function HomeRoute() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [ffFilter, setFfFilter] = useState("all");
-  const [dashTab, setDashTab] = useState("Total");
+  const [mode, setModeState] = useState<ViewMode>("Total");
+  VIEW_MODE = mode;
+  const dashTab = mode;
+  const setMode = (next: ViewMode) => {
+    VIEW_MODE = next;
+    setModeState(next);
+    try {
+      window.localStorage.setItem(MODE_STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const setDashTab = (next: string) => setMode(next as ViewMode);
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(MODE_STORAGE_KEY);
+      if (saved === "Total" || saved === "Alarm" || saved === "Firefighting")
+        setModeState(saved);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lang, setLang] = useState<AppLang>("en");
   const translatedNodes = useRef(new Map<Node, { src: string; out: string }>());
@@ -1625,6 +1715,13 @@ export default function HomeRoute() {
       window.clearTimeout(timer);
     };
   }, [locateRequest]);
+  const modeBuildings = useMemo(
+    () =>
+      (data?.buildings ?? []).filter(
+        (building) => mode !== "Firefighting" || hasFirefighting(building),
+      ),
+    [data?.buildings, mode],
+  );
   const mapLabels = useMemo(() => {
     const polygonArea = (building: Building) => {
       const points = building.geometry!.points;
@@ -1635,7 +1732,7 @@ export default function HomeRoute() {
         (Math.max(...ys) - Math.min(...ys))
       );
     };
-    const buildings = (data?.buildings ?? [])
+    const buildings = modeBuildings
       .filter((building) => (building.geometry?.points.length ?? 0) >= 3)
       .filter(
         (building) =>
@@ -1795,7 +1892,8 @@ export default function HomeRoute() {
       ];
     });
   }, [
-    data?.buildings,
+    modeBuildings,
+    mode,
     mapContentSize,
     mapZoom,
     selectedMapBuildingId,
@@ -1805,13 +1903,13 @@ export default function HomeRoute() {
   const mapBuildingSearchResults = useMemo(() => {
     const query = mapBuildingSearch.trim().toLowerCase();
     if (!query) return [];
-    return (data?.buildings ?? [])
+    return modeBuildings
       .filter((building) => building.name.toLowerCase().includes(query))
       .slice(0, 8);
-  }, [data?.buildings, mapBuildingSearch]);
+  }, [modeBuildings, mapBuildingSearch]);
   const filtered = useMemo(
     () =>
-      (data?.buildings ?? []).filter(
+      modeBuildings.filter(
         (building) =>
           (statusFilter.length === 0 ||
             statusFilter.includes(buildingStatus(building))) &&
@@ -1820,11 +1918,19 @@ export default function HomeRoute() {
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
-    [data?.buildings, search, statusFilter, ffFilter],
+    [modeBuildings, mode, search, statusFilter, ffFilter],
   );
+  const modeStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const building of modeBuildings) {
+      const status = buildingStatus(building);
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
+  }, [modeBuildings, mode]);
   const ffDash = useMemo(() => {
     const all = (data?.buildings ?? [])
-      .filter((b) => !isRemoved(b))
+      .filter((b) => !isAlarmRemoved(b))
       .map((b) => ({ b, ff: parseFirefighting(b.notes) }))
       .filter((x) => x.ff.types.length > 0)
       .map((x) => ({ ...x, status: firefightingStatusOf(x.ff) }));
@@ -1868,7 +1974,7 @@ export default function HomeRoute() {
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const building of data?.buildings ?? []) {
-      const status = buildingStatus(building);
+      const status = alarmStatusOf(building);
       counts[status] = (counts[status] ?? 0) + 1;
     }
     return counts;
@@ -1876,7 +1982,7 @@ export default function HomeRoute() {
   const statusStats = useMemo(() => {
     const acc: Record<string, { count: number; sum: number }> = {};
     for (const building of data?.buildings ?? []) {
-      const status = buildingStatus(building);
+      const status = alarmStatusOf(building);
       const entry = (acc[status] ??= { count: 0, sum: 0 });
       entry.count += 1;
       entry.sum += building.progress;
@@ -1890,7 +1996,7 @@ export default function HomeRoute() {
   const filteredActive = filtered.filter((building) => !isRemoved(building));
   const activeActivityProgress = (activityId: string) => {
     const buildings =
-      data?.buildings.filter((building) => !isRemoved(building)) ?? [];
+      data?.buildings.filter((building) => !isAlarmRemoved(building)) ?? [];
     return buildings.length
       ? buildings.reduce(
           (sum, building) =>
@@ -2576,7 +2682,10 @@ export default function HomeRoute() {
                 Fire alarm &amp; firefighting alarm system implementation
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {view !== "Settings" && (
+                <ModeSwitch value={mode} onChange={setMode} />
+              )}
               <button
                 onClick={() => setView("Reports")}
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
@@ -2610,24 +2719,6 @@ export default function HomeRoute() {
             <>
               {view === "Dashboard" && (
                 <>
-                  <div
-                    role="tablist"
-                    aria-label="Dashboard"
-                    className="mb-4 inline-flex gap-1 rounded-xl border border-slate-200 bg-white p-1"
-                  >
-                    {["Total", "Alarm", "Firefighting"].map((tab) => (
-                      <button
-                        key={tab}
-                        type="button"
-                        role="tab"
-                        aria-selected={dashTab === tab}
-                        onClick={() => setDashTab(tab)}
-                        className={`h-9 rounded-lg px-4 text-xs font-semibold ${dashTab === tab ? "bg-[#142b3c] text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
                   {dashTab === "Total" && (
                     <>
                       <section className="grid gap-3 sm:grid-cols-3">
@@ -3224,7 +3315,7 @@ export default function HomeRoute() {
                     <StatusFilterChips
                       value={statusFilter}
                       onChange={setStatusFilter}
-                      counts={statusCounts}
+                      counts={modeStatusCounts}
                     />
                     <div className="mt-2">
                       <FirefightingFilterChips
@@ -3256,7 +3347,38 @@ export default function HomeRoute() {
                 </section>
               )}
 
-              {view === "Activities" && (
+              {view === "Activities" && mode !== "Alarm" && (
+                <div className="mb-6">
+                  <div className="mb-3 text-sm font-bold text-[#1c3041]">
+                    Firefighting activities
+                    <span className="ms-2 text-xs font-medium text-slate-400">
+                      {`${ffDash.total} buildings with firefighting`}
+                    </span>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                      <div
+                        key={name}
+                        className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-bold text-[#1c3041]">
+                            {name}
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-600">
+                            {pct(ffDash.activityAvg[i])}
+                          </div>
+                        </div>
+                        <div className="mt-5">
+                          <ProgressBar value={ffDash.activityAvg[i]} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {view === "Activities" && mode !== "Firefighting" && (
                 <div>
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-slate-500">
@@ -3419,7 +3541,7 @@ export default function HomeRoute() {
                         <StatusFilterChips
                           value={statusFilter}
                           onChange={setStatusFilter}
-                          counts={statusCounts}
+                          counts={modeStatusCounts}
                         />
                         <div className="mt-1.5">
                           <FirefightingFilterChips
@@ -3562,7 +3684,7 @@ export default function HomeRoute() {
                             className="mt-1 block h-9 w-full rounded-lg sm:ms-2 sm:mt-0 sm:inline-block sm:w-auto border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
                           >
                             <option value="">Select a building…</option>
-                            {data.buildings.map((building) => (
+                            {modeBuildings.map((building) => (
                               <option key={building.id} value={building.id}>
                                 {displayBuildingLine(
                                   building.buildingNumber,
@@ -3734,7 +3856,7 @@ export default function HomeRoute() {
                           <StatusFilterChips
                             value={statusFilter}
                             onChange={setStatusFilter}
-                            counts={statusCounts}
+                            counts={modeStatusCounts}
                           />
                           <div className="mt-1.5">
                             <FirefightingFilterChips
@@ -3751,6 +3873,7 @@ export default function HomeRoute() {
                         className={`relative ${mapFullscreen ? "min-h-0 flex-1" : "mt-3 max-h-[80vh] w-full"}`}
                       >
                         {selectedMapBuilding &&
+                          mode === "Total" &&
                           parseFirefighting(selectedMapBuilding.notes).types
                             .length > 0 && (
                             <section
@@ -3807,18 +3930,26 @@ export default function HomeRoute() {
                                     buildingStatus(selectedMapBuilding),
                                   )}
                                   <span>·</span>
-                                  Alarm{" "}
-                                  {selectedMapBuilding.progress.toFixed(1)}%
+                                  {mode === "Firefighting"
+                                    ? "Firefighting"
+                                    : "Alarm"}{" "}
+                                  {(mode === "Firefighting"
+                                    ? bProgress(selectedMapBuilding)
+                                    : selectedMapBuilding.progress
+                                  ).toFixed(1)}
+                                  %
                                 </div>
-                                <div className="mt-1 inline-block rounded-md bg-[#142b3c] px-2 py-0.5 text-[11px] font-semibold text-white">
-                                  Overall{" "}
-                                  <span dir="ltr">
-                                    {buildingOverallOf(
-                                      selectedMapBuilding,
-                                    ).toFixed(1)}
-                                    %
-                                  </span>
-                                </div>
+                                {mode === "Total" && (
+                                  <div className="mt-1 inline-block rounded-md bg-[#142b3c] px-2 py-0.5 text-[11px] font-semibold text-white">
+                                    Overall{" "}
+                                    <span dir="ltr">
+                                      {buildingOverallOf(
+                                        selectedMapBuilding,
+                                      ).toFixed(1)}
+                                      %
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                               <button
                                 type="button"
@@ -3832,7 +3963,7 @@ export default function HomeRoute() {
                               </button>
                             </div>
                             <div className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
-                              {selectedMapBuilding.activities.map(
+                              {activitiesFor(selectedMapBuilding).map(
                                 (activity) => (
                                   <div key={activity.id}>
                                     <div className="mb-1 flex justify-between gap-2 text-[10px]">
@@ -3897,7 +4028,7 @@ export default function HomeRoute() {
                                   );
                               }}
                             />
-                            {data.buildings
+                            {modeBuildings
                               .filter(
                                 (building) =>
                                   (building.geometry?.points.length ?? 0) >=
@@ -4077,7 +4208,7 @@ export default function HomeRoute() {
               )}
 
               {view === "Reports" && (
-                <ReportsView data={data} onOpen={setView} />
+                <ReportsView data={data} mode={mode} onOpen={setView} />
               )}
 
               {view === "Progress history" && (
@@ -4090,7 +4221,7 @@ export default function HomeRoute() {
                       Most recent recorded activity updates
                     </p>
                   </div>
-                  {data.history.length ? (
+                  {mode !== "Firefighting" && data.history.length ? (
                     <div className="divide-y divide-slate-100">
                       {data.history.map((item) => (
                         <div
@@ -4132,7 +4263,9 @@ export default function HomeRoute() {
                     </div>
                   ) : (
                     <div className="p-8 text-center text-xs text-slate-400">
-                      No progress history is available yet.
+                      {mode === "Firefighting"
+                        ? "Firefighting progress changes are not logged in the history. Switch to Alarm or Total to see the alarm activity history."
+                        : "No progress history is available yet."}
                     </div>
                   )}
                 </div>
@@ -4556,10 +4689,10 @@ export default function HomeRoute() {
                       <div className="mb-5 flex items-end justify-between rounded-xl bg-[#f5f7f8] p-4">
                         <div>
                           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                            Building progress
+                            {`Building ${modeProgressLabel().toLowerCase()}`}
                           </div>
                           <div className="mt-1 text-2xl font-bold tracking-tight text-[#1b3345]">
-                            {pct(selected.progress)}
+                            {pct(bProgress(selected))}
                           </div>
                         </div>
                         <div className="text-right text-[10px] text-slate-500">
@@ -4570,22 +4703,24 @@ export default function HomeRoute() {
                           </strong>
                         </div>
                       </div>
-                      <FirefightingSection
-                        building={selected}
-                        canEdit={data?.userRole === "Site Manager"}
-                        saving={saveFirefightingMutation.isPending}
-                        feedback={firefightingFeedback}
-                        onSave={(types, comment, progress, status, reason) =>
-                          saveFirefightingMutation.mutate({
-                            buildingId: selected.id,
-                            types,
-                            comment,
-                            progress,
-                            status,
-                            reason,
-                          })
-                        }
-                      />
+                      {mode !== "Alarm" && (
+                        <FirefightingSection
+                          building={selected}
+                          canEdit={data?.userRole === "Site Manager"}
+                          saving={saveFirefightingMutation.isPending}
+                          feedback={firefightingFeedback}
+                          onSave={(types, comment, progress, status, reason) =>
+                            saveFirefightingMutation.mutate({
+                              buildingId: selected.id,
+                              types,
+                              comment,
+                              progress,
+                              status,
+                              reason,
+                            })
+                          }
+                        />
+                      )}
                       {isRemoved(selected) && (
                         <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                           Removed from Scope — this building is excluded from
@@ -4593,28 +4728,30 @@ export default function HomeRoute() {
                           progress and history are retained.
                         </div>
                       )}
-                      <div className="space-y-4">
-                        {selected.activities.map((activity) => (
-                          <div key={activity.id}>
-                            <div className="mb-2 flex justify-between gap-4">
-                              <div className="text-xs font-semibold text-slate-700">
-                                {activity.name}
-                                <span className="ms-2 font-normal text-slate-400">
-                                  {`${Number(activity.weight)}% weight`}
-                                </span>
+                      {mode !== "Firefighting" && (
+                        <div className="space-y-4">
+                          {selected.activities.map((activity) => (
+                            <div key={activity.id}>
+                              <div className="mb-2 flex justify-between gap-4">
+                                <div className="text-xs font-semibold text-slate-700">
+                                  {activity.name}
+                                  <span className="ms-2 font-normal text-slate-400">
+                                    {`${Number(activity.weight)}% weight`}
+                                  </span>
+                                </div>
+                                <div className="text-xs font-semibold text-slate-600">
+                                  {pct(activity.progress)}
+                                </div>
                               </div>
-                              <div className="text-xs font-semibold text-slate-600">
-                                {pct(activity.progress)}
+                              <ProgressBar value={activity.progress} />
+                              <div className="mt-1 text-right text-[10px] text-slate-400">
+                                {`Contribution ${pct(activity.contribution)}`}
                               </div>
                             </div>
-                            <ProgressBar value={activity.progress} />
-                            <div className="mt-1 text-right text-[10px] text-slate-400">
-                              {`Contribution ${pct(activity.contribution)}`}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {!isRemoved(selected) && (
+                          ))}
+                        </div>
+                      )}
+                      {mode !== "Firefighting" && !isRemoved(selected) && (
                         <div className="mt-6 border-t border-slate-100 pt-5">
                           <h3 className="mb-3 text-xs font-bold text-[#1c3041]">
                             Update activity progress
@@ -4694,7 +4831,7 @@ export default function HomeRoute() {
                           </div>
                         </div>
                       )}
-                      {isRemoved(selected) && (
+                      {mode !== "Firefighting" && isRemoved(selected) && (
                         <div className="mt-5 text-[11px] text-slate-400">
                           Progress updates are disabled for excluded buildings.
                         </div>
@@ -4794,7 +4931,7 @@ function BuildingTable({
                   sensitivity: "base",
                 })
               : sort.key === "progress"
-                ? a.progress - b.progress
+                ? bProgress(a) - bProgress(b)
                 : Number(a.relativeWeight) - Number(b.relativeWeight);
         return sort.direction === "asc" ? comparison : -comparison;
       }),
@@ -4870,10 +5007,10 @@ function BuildingTable({
             )}
             <div className="mt-3 flex items-center gap-3">
               <div className="flex-1">
-                <ProgressBar value={building.progress} />
+                <ProgressBar value={bProgress(building)} />
               </div>
               <span className="text-[11px] font-bold tabular-nums text-slate-700">
-                {pct(building.progress)}
+                {pct(bProgress(building))}
               </span>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -4996,12 +5133,12 @@ function BuildingTable({
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-3">
                     <div className="min-w-[95px] flex-1">
-                      <ProgressBar value={building.progress} />
+                      <ProgressBar value={bProgress(building)} />
                     </div>
                     <span
                       className={`w-11 text-right text-[11px] font-bold tabular-nums ${isRemoved(building) ? "text-slate-400" : "text-slate-700"}`}
                     >
-                      {pct(building.progress)}
+                      {pct(bProgress(building))}
                     </span>
                   </div>
                 </td>
@@ -5477,15 +5614,20 @@ function FirefightingSection({
 
 function ReportsView({
   data,
+  mode,
   onOpen,
 }: {
   data: DashboardData;
+  mode: ViewMode;
   onOpen: (view: string) => void;
 }) {
   const [notice, setNotice] = useState("");
   const stamp = reportDateStamp();
-  const active = data.buildings.filter((b) => !isRemoved(b));
-  const removed = data.buildings.filter((b) => isRemoved(b));
+  const scoped = data.buildings.filter(
+    (b) => mode !== "Firefighting" || hasFirefighting(b),
+  );
+  const active = scoped.filter((b) => !isRemoved(b));
+  const removed = scoped.filter((b) => isRemoved(b));
   const byNumber = (a: Building, b: Building) =>
     displayBuildingNumber(a.buildingNumber, a.name).localeCompare(
       displayBuildingNumber(b.buildingNumber, b.name),
@@ -5495,7 +5637,7 @@ function ReportsView({
   const statusRows = REPORT_STATUS_ORDER.map((status) => {
     const list = active.filter((b) => buildingStatus(b) === status);
     const avg = list.length
-      ? list.reduce((sum, b) => sum + b.progress, 0) / list.length
+      ? list.reduce((sum, b) => sum + bProgress(b), 0) / list.length
       : 0;
     return { status, count: list.length, avg };
   });
@@ -5510,7 +5652,7 @@ function ReportsView({
     displayBuildingNumber(b.buildingNumber, b.name),
     splitBuildingName(b.name).title,
     statusLabel(buildingStatus(b)),
-    b.progress.toFixed(1),
+    bProgress(b).toFixed(1),
     b.relativeWeight,
     b.statusReason || "",
     mostRecentUpdate(b),
@@ -5763,27 +5905,38 @@ function ReportsView({
           </div>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3">
-          {[
-            ["Alarm progress", data.overall],
-            ["Firefighting progress", ffOverall],
-            ["Project overall progress", overallCombined],
-          ].map(([label, value]) => (
-            <div
-              key={label as string}
-              className="rounded-lg border border-slate-200 p-3"
-            >
-              <div className="text-[11px] font-semibold text-slate-500">
-                {label as string}
+          {(
+            [
+              ["Alarm progress", data.overall],
+              ["Firefighting progress", ffOverall],
+              ["Project overall progress", overallCombined],
+            ] as [string, number][]
+          )
+            .filter(
+              ([label]) =>
+                mode === "Total" ||
+                (mode === "Alarm" && label === "Alarm progress") ||
+                (mode === "Firefighting" && label === "Firefighting progress"),
+            )
+            .map(([label, value]) => (
+              <div
+                key={label as string}
+                className="rounded-lg border border-slate-200 p-3"
+              >
+                <div className="text-[11px] font-semibold text-slate-500">
+                  {label as string}
+                </div>
+                <div className="text-xl font-bold text-[#142636]" dir="ltr">
+                  {pct(value as number)}
+                </div>
               </div>
-              <div className="text-xl font-bold text-[#142636]" dir="ltr">
-                {pct(value as number)}
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
-        <div className="mt-1 text-[11px] text-slate-400" dir="ltr">
-          {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting`}
-        </div>
+        {mode === "Total" && (
+          <div className="mt-1 text-[11px] text-slate-400" dir="ltr">
+            {`Overall = ${OVERALL_WEIGHTS.alarm * 100}% alarm + ${OVERALL_WEIGHTS.firefighting * 100}% firefighting`}
+          </div>
+        )}
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-start text-xs">
             <thead>
@@ -5841,7 +5994,7 @@ function ReportsView({
                           className={`font-semibold ${buildingStatus(b) === "Delayed" ? "text-red-700" : buildingStatus(b) === "Hold" ? "text-amber-700" : buildingStatus(b) === "Finished" ? "text-emerald-700" : "text-slate-700"}`}
                         >
                           {statusLabel(buildingStatus(b))} ·{" "}
-                          <span dir="ltr">{pct(b.progress)}</span>
+                          <span dir="ltr">{pct(bProgress(b))}</span>
                         </span>
                       </div>
                       {b.statusReason && (
@@ -5850,7 +6003,7 @@ function ReportsView({
                         </div>
                       )}
                       <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-4">
-                        {b.activities.map((act) => (
+                        {activitiesFor(b).map((act) => (
                           <div
                             key={act.id}
                             className="flex items-baseline justify-between gap-2"
@@ -5872,79 +6025,81 @@ function ReportsView({
             </div>
           );
         })}
-        <div className="mt-8 break-before-page">
-          <div className="text-xs font-bold text-[#1c3041]">
-            Firefighting progress
-          </div>
-          <div className="mt-1 text-[11px] text-slate-400">
-            Separate from alarm progress.
-          </div>
-          <div className="mt-2 text-2xl font-bold text-[#142636]" dir="ltr">
-            {pct(ffOverall)}
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-xs" dir="ltr">
-            {ffTypeRows.map((r) => (
-              <div
-                key={r.type}
-                className="rounded-lg border border-slate-200 p-2"
-              >
-                <div className="font-semibold text-slate-700">{r.type}</div>
-                <div className="text-slate-500">{`${r.count} buildings`}</div>
-                <div className="font-bold text-[#1b3345]">{pct(r.avg)}</div>
-              </div>
-            ))}
-          </div>
-          {ffBuildings.length === 0 ? (
-            <div className="mt-2 text-xs text-slate-400">
-              No firefighting buildings.
+        {mode !== "Alarm" && (
+          <div className="mt-8 break-before-page">
+            <div className="text-xs font-bold text-[#1c3041]">
+              Firefighting progress
             </div>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {ffBuildings.map((x) => (
+            <div className="mt-1 text-[11px] text-slate-400">
+              Separate from alarm progress.
+            </div>
+            <div className="mt-2 text-2xl font-bold text-[#142636]" dir="ltr">
+              {pct(ffOverall)}
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs" dir="ltr">
+              {ffTypeRows.map((r) => (
                 <div
-                  key={x.b.id}
-                  className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
+                  key={r.type}
+                  className="rounded-lg border border-slate-200 p-2"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-800" dir="ltr">
-                      {displayBuildingLine(x.b.buildingNumber, x.b.name)}
-                    </span>
-                    <span className="font-semibold text-slate-700" dir="ltr">
-                      {pct(firefightingProgressOf(x.ff))}
-                    </span>
-                  </div>
-                  <div
-                    className="mt-1 flex flex-wrap gap-1.5 font-semibold text-red-700"
-                    dir="ltr"
-                  >
-                    {x.ff.types.join(" + ")}
-                  </div>
-                  {x.ff.comment && (
-                    <div className="mt-1 whitespace-pre-line text-slate-500">
-                      {x.ff.comment}
-                    </div>
-                  )}
-                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-4">
-                    {FIREFIGHTING_ACTIVITIES.map((name, i) => (
-                      <div
-                        key={name}
-                        className="flex items-baseline justify-between gap-2"
-                      >
-                        <span className="text-slate-500">{name}</span>
-                        <span
-                          className="font-semibold text-slate-700"
-                          dir="ltr"
-                        >
-                          {x.ff.progress[i].toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="font-semibold text-slate-700">{r.type}</div>
+                  <div className="text-slate-500">{`${r.count} buildings`}</div>
+                  <div className="font-bold text-[#1b3345]">{pct(r.avg)}</div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+            {ffBuildings.length === 0 ? (
+              <div className="mt-2 text-xs text-slate-400">
+                No firefighting buildings.
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {ffBuildings.map((x) => (
+                  <div
+                    key={x.b.id}
+                    className="break-inside-avoid rounded-lg border border-slate-200 p-3 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-slate-800" dir="ltr">
+                        {displayBuildingLine(x.b.buildingNumber, x.b.name)}
+                      </span>
+                      <span className="font-semibold text-slate-700" dir="ltr">
+                        {pct(firefightingProgressOf(x.ff))}
+                      </span>
+                    </div>
+                    <div
+                      className="mt-1 flex flex-wrap gap-1.5 font-semibold text-red-700"
+                      dir="ltr"
+                    >
+                      {x.ff.types.join(" + ")}
+                    </div>
+                    {x.ff.comment && (
+                      <div className="mt-1 whitespace-pre-line text-slate-500">
+                        {x.ff.comment}
+                      </div>
+                    )}
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-4">
+                      {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                        <div
+                          key={name}
+                          className="flex items-baseline justify-between gap-2"
+                        >
+                          <span className="text-slate-500">{name}</span>
+                          <span
+                            className="font-semibold text-slate-700"
+                            dir="ltr"
+                          >
+                            {x.ff.progress[i].toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="grid gap-4 md:grid-cols-2 print:hidden">
         {downloads.map((d) => (
