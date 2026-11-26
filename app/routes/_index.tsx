@@ -800,6 +800,8 @@ const buildingStatus = (building: Building) =>
   VIEW_MODE === "Firefighting"
     ? firefightingStatusOf(ffOf(building))
     : (building.manualStatus ?? statusFromProgress(bProgress(building)));
+const reasonOf = (building: Building) =>
+  VIEW_MODE === "Firefighting" ? ffOf(building).reason : building.statusReason;
 const modeProgressLabel = () =>
   VIEW_MODE === "Alarm"
     ? "Alarm progress"
@@ -4663,9 +4665,9 @@ export default function HomeRoute() {
                           <span className="text-xs font-semibold text-slate-600">
                             {statusLabel(buildingStatus(selected))}
                           </span>
-                          {selected.statusReason && (
+                          {reasonOf(selected) && (
                             <span className="text-xs text-slate-400">
-                              {selected.statusReason}
+                              {reasonOf(selected)}
                             </span>
                           )}
                         </div>
@@ -5000,9 +5002,9 @@ function BuildingTable({
                 {statusLabel(buildingStatus(building))}
               </span>
             </div>
-            {building.statusReason && (
+            {reasonOf(building) && (
               <div className="mt-2 text-[10px] text-slate-400">
-                {building.statusReason}
+                {reasonOf(building)}
               </div>
             )}
             <div className="mt-3 flex items-center gap-3">
@@ -5123,9 +5125,9 @@ function BuildingTable({
                     >
                       {statusLabel(buildingStatus(building))}
                     </span>
-                    {building.statusReason && (
+                    {reasonOf(building) && (
                       <div className="mt-1 max-w-48 text-[10px] text-slate-400">
-                        {building.statusReason}
+                        {reasonOf(building)}
                       </div>
                     )}
                   </div>
@@ -5654,7 +5656,7 @@ function ReportsView({
     statusLabel(buildingStatus(b)),
     bProgress(b).toFixed(1),
     b.relativeWeight,
-    b.statusReason || "",
+    reasonOf(b) || "",
     mostRecentUpdate(b),
   ];
   const buildingHead = [
@@ -5762,7 +5764,7 @@ function ReportsView({
           .map((b) => [
             displayBuildingNumber(b.buildingNumber, b.name),
             splitBuildingName(b.name).title,
-            b.statusReason || "",
+            reasonOf(b) || "",
           ]),
       ],
     },
@@ -5997,10 +5999,8 @@ function ReportsView({
                           <span dir="ltr">{pct(bProgress(b))}</span>
                         </span>
                       </div>
-                      {b.statusReason && (
-                        <div className="mt-1 text-slate-500">
-                          {b.statusReason}
-                        </div>
+                      {reasonOf(b) && (
+                        <div className="mt-1 text-slate-500">{reasonOf(b)}</div>
                       )}
                       <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-4">
                         {activitiesFor(b).map((act) => (
