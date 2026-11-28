@@ -87,6 +87,7 @@ type DashboardData = {
   overall: number;
   userRole: string | null;
   siteMap: SiteMapInfo | null;
+  firefightingWeights?: number[];
   buildings: Building[];
   activeCount: number;
   removedCount: number;
@@ -781,6 +782,9 @@ const VIEW_MODES: ViewMode[] = ["Total", "Alarm", "Firefighting"];
 // The selected view mode (Total / Alarm / Firefighting). HomeRoute sets it on
 // every render, so every page reads the same mode.
 let VIEW_MODE: ViewMode = "Total";
+// Weights of the four firefighting activities, one setting for the whole
+// project (Settings page). HomeRoute sets it from the dashboard data.
+let FF_ACT_WEIGHTS: number[] = [25, 25, 25, 25];
 const MODE_STORAGE_KEY = "fafs-view-mode";
 const ffOf = (building: Building) => parseFirefighting(building.notes);
 const hasFirefighting = (building: Building) => ffOf(building).types.length > 0;
@@ -1504,6 +1508,20 @@ export default function HomeRoute() {
         bootstrapStatus === "ready" && session.status === "authenticated",
     },
   );
+  FF_ACT_WEIGHTS =
+    Array.isArray(dashboard.data?.firefightingWeights) &&
+    dashboard.data.firefightingWeights.length === 4
+      ? dashboard.data.firefightingWeights
+      : [25, 25, 25, 25];
+  const saveFfWeightsMutation = useActionMutation<
+    unknown,
+    { weights: number[] },
+    "set-firefighting-weights"
+  >("set-firefighting-weights", {
+    onSuccess: async () => {
+      await dashboard.refetch();
+    },
+  });
   const managedUsers = useActionQuery<ManagedUser[]>(
     "list-project-users",
     {},
@@ -1565,6 +1583,7 @@ export default function HomeRoute() {
       progress: number[];
       status: string;
       reason: string;
+      units?: FirefightingUnit[];
     },
     "save-building-firefighting"
   >("save-building-firefighting", {
@@ -1580,6 +1599,9 @@ export default function HomeRoute() {
                       types: variables.types,
                       comment: variables.comment.trim(),
                       progress: variables.progress,
+                      units: (
+                        variables.units ?? parseFirefighting(current.notes).units
+                      ).filter((u) => variables.types.includes(u.type)),
                       ...(variables.status
                         ? { status: variables.status, reason: variables.reason }
                         : {}),
@@ -4439,6 +4461,16 @@ export default function HomeRoute() {
                       ))}
                     </div>
                   </div>
+                  {data.userRole === "Site Manager" && (
+                    <FirefightingWeightsSettings
+                      weights={FF_ACT_WEIGHTS}
+                      saving={saveFfWeightsMutation.isPending}
+                      feedback={saveFfWeightsMutation.error?.message ?? ""}
+                      onSave={(weights) =>
+                        saveFfWeightsMutation.mutate({ weights })
+                      }
+                    />
+                  )}
                   <div className="divide-y divide-slate-100">
                     {[
                       ["Project", "Amreya Petroleum Refining Company"],
@@ -4887,7 +4919,7 @@ export default function HomeRoute() {
                             building={selected}
                             saving={saveFirefightingMutation.isPending}
                             feedback={firefightingFeedback}
-                            onSave={(progress) => {
+                            onSave={(progress, units) => {
                               const cur = parseFirefighting(selected.notes);
                               saveFirefightingMutation.mutate({
                                 buildingId: selected.id,
@@ -4896,6 +4928,7 @@ export default function HomeRoute() {
                                 progress,
                                 status: cur.status,
                                 reason: cur.reason,
+                                units,
                               });
                             }}
                           />
@@ -5437,12 +5470,21 @@ const FIREFIGHTING_ACTIVITIES = [
   "As-built",
 ];
 const FIREFIGHTING_MANUAL_STATUSES = ["Hold", "Delayed", "Removed from scope"];
+type FirefightingUnit = {
+  id: string;
+  type: string;
+  name: string;
+  weight: number;
+  progress: number[];
+};
 type FirefightingData = {
   types: string[];
   comment: string;
   progress: number[];
   status: string;
   reason: string;
+  units: FirefightingUnit[];
+  actWeights: number[];
 };
 function parseFirefighting(notes: string | undefined): FirefightingData {
   const zero = FIREFIGHTING_ACTIVITIES.map(() => 0);
@@ -5452,6 +5494,8 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
     progress: zero,
     status: "",
     reason: "",
+    units: [],
+    actWeights: [...FF_ACT_WEIGHTS],
   };
   if (!notes) return empty;
   try {
@@ -5465,6 +5509,27 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
       comment: typeof ff.comment === "string" ? ff.comment : "",
       status: FIREFIGHTING_MANUAL_STATUSES.includes(ff.status) ? ff.status : "",
       reason: typeof ff.reason === "string" ? ff.reason : "",
+      units: Array.isArray(ff.units)
+        ? ff.units
+            .filter(
+              (u: any) =>
+                u && typeof u.id === "string" && typeof u.name === "string",
+            )
+            .map((u: any) => ({
+              id: u.id,
+              type: typeof u.type === "string" ? u.type : "",
+              name: u.name,
+              weight:
+                Number.isFinite(Number(u.weight)) && Number(u.weight) >= 0
+                  ? Number(u.weight)
+                  : 1,
+              progress: FIREFIGHTING_ACTIVITIES.map((_, i) => {
+                const n = Number(Array.isArray(u.progress) ? u.progress[i] : 0);
+                return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+              }),
+            }))
+        : [],
+      actWeights: [...FF_ACT_WEIGHTS],
       progress: FIREFIGHTING_ACTIVITIES.map((_, i) => {
         const n = Number(Array.isArray(ff.progress) ? ff.progress[i] : 0);
         return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
@@ -5474,9 +5539,28 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
     return empty;
   }
 }
-// One firefighting progress per building: the four activities, equal weights.
+// Weighted average of values by weights (plain average if all weights are 0).
+const weightedAvg = (values: number[], weights: number[]) => {
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0)
+    return values.length
+      ? values.reduce((a, b) => a + b, 0) / values.length
+      : 0;
+  return values.reduce((sum, v, i) => sum + v * weights[i], 0) / total;
+};
+// A unit's progress: its four activities, weighted by the building's activity weights.
+const unitProgressOf = (unit: FirefightingUnit, actWeights: number[]) =>
+  weightedAvg(unit.progress, actWeights);
+// Building firefighting progress. With units: weighted average of the units'
+// progress (unit weights, default 1 each). Without units: the building's four
+// activities (activity weights, default equal).
 const firefightingProgressOf = (ff: FirefightingData) =>
-  ff.progress.reduce((sum, v) => sum + v, 0) / FIREFIGHTING_ACTIVITIES.length;
+  ff.units.length > 0
+    ? weightedAvg(
+        ff.units.map((u) => unitProgressOf(u, ff.actWeights)),
+        ff.units.map((u) => u.weight),
+      )
+    : weightedAvg(ff.progress, ff.actWeights);
 
 const buildingOverallOf = (b: Building) => {
   const ff = parseFirefighting(b.notes);
@@ -5557,6 +5641,97 @@ const FF_STATUS_ORDER: [string, string, string][] = [
   ["Removed from scope", "bg-slate-500", "text-slate-600"],
 ];
 
+// One setting for all firefighting: the weight of each of the four activities.
+function FirefightingWeightsSettings({
+  weights,
+  saving,
+  feedback,
+  onSave,
+}: {
+  weights: number[];
+  saving: boolean;
+  feedback: string;
+  onSave: (weights: number[]) => void;
+}) {
+  const [drafts, setDrafts] = useState<string[]>(weights.map((v) => String(v)));
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const key = weights.join(",");
+  useEffect(() => {
+    setDrafts(weights.map((v) => String(v)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const save = () => {
+    const values = drafts.map((d) => (d.trim() === "" ? NaN : Number(d)));
+    if (values.some((v) => !Number.isFinite(v) || v < 0 || v > 100)) {
+      setError("Enter a weight from 0 to 100 for every activity.");
+      return;
+    }
+    if (values.every((v) => v === 0)) {
+      setError("At least one weight must be above 0.");
+      return;
+    }
+    setError("");
+    setSaved(true);
+    onSave(values);
+  };
+  return (
+    <div className="mb-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
+      <div className="text-xs font-bold text-[#1c3041]">
+        Firefighting activity weights
+      </div>
+      <p className="mt-1 text-xs text-slate-500">
+        One setting for all firefighting units and buildings. Only the
+        proportions matter (25 / 25 / 25 / 25 means equal).
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+          <div key={name}>
+            <label
+              htmlFor={`ffgw-${i}`}
+              className="mb-1 block text-[11px] font-semibold text-slate-600"
+            >
+              {name}
+            </label>
+            <input
+              id={`ffgw-${i}`}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              max="100"
+              step="0.1"
+              dir="ltr"
+              value={drafts[i] ?? ""}
+              onChange={(event) => {
+                setSaved(false);
+                setDrafts((prev) =>
+                  prev.map((v, j) => (j === i ? event.target.value : v)),
+                );
+              }}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-[#829aaa]"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <span
+          className={`text-[11px] ${error || feedback ? "text-rose-600" : "text-slate-500"}`}
+        >
+          {error || feedback || (saved && !saving ? "Saved." : "")}
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={save}
+          className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {saving ? "Saving…" : "Save weights"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FirefightingProgressCard({
   building,
   saving,
@@ -5566,18 +5741,32 @@ function FirefightingProgressCard({
   building: Building;
   saving: boolean;
   feedback: string;
-  onSave: (progress: number[]) => void;
+  onSave: (progress: number[], units: FirefightingUnit[]) => void;
 }) {
   const current = parseFirefighting(building.notes);
   const [open, setOpen] = useState(false);
   const [drafts, setDrafts] = useState<string[]>(
     current.progress.map((v) => String(v)),
   );
+  // Unit drafts: weight + one value per activity, kept as text while typing.
+  type UnitDraft = { id: string; weight: string; progress: string[] };
+  const toUnitDrafts = (ff: FirefightingData): UnitDraft[] =>
+    ff.units.map((u) => ({
+      id: u.id,
+      weight: String(u.weight),
+      progress: u.progress.map((v) => String(v)),
+    }));
+  const [unitDrafts, setUnitDrafts] = useState<UnitDraft[]>(
+    toUnitDrafts(current),
+  );
+  const [openUnit, setOpenUnit] = useState<string>("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const submitted = useRef(false);
   useEffect(() => {
-    setDrafts(parseFirefighting(building.notes).progress.map((v) => String(v)));
+    const ff = parseFirefighting(building.notes);
+    setDrafts(ff.progress.map((v) => String(v)));
+    setUnitDrafts(toUnitDrafts(ff));
     if (submitted.current) {
       submitted.current = false;
       setSaved(true);
@@ -5586,20 +5775,95 @@ function FirefightingProgressCard({
   }, [building.id, building.notes]);
   useEffect(() => {
     setOpen(false);
+    setOpenUnit("");
     setSaved(false);
     setError("");
   }, [building.id]);
+  const hasUnits = current.units.length > 0;
+  const num = (d: string) => (d.trim() === "" ? NaN : Number(d));
+  const validPct = (v: number) => Number.isFinite(v) && v >= 0 && v <= 100;
+  const validWeight = (v: number) => Number.isFinite(v) && v >= 0;
+  // Live values from the drafts, so the percentages update while typing.
+  const liveWeights = FF_ACT_WEIGHTS;
+  const liveUnits: FirefightingUnit[] = current.units.map((u) => {
+    const d = unitDrafts.find((x) => x.id === u.id);
+    if (!d) return u;
+    return {
+      ...u,
+      weight: validWeight(num(d.weight)) ? num(d.weight) : 0,
+      progress: d.progress.map((v) => (validPct(num(v)) ? num(v) : 0)),
+    };
+  });
+  const liveTotal = hasUnits
+    ? firefightingProgressOf({
+        ...current,
+        units: liveUnits,
+      })
+    : firefightingProgressOf({
+        ...current,
+        progress: drafts.map((d) => (validPct(num(d)) ? num(d) : 0)),
+      });
   const save = () => {
-    const values = drafts.map((d) => Number(d));
-    if (drafts.some((d) => d === "") || values.some((v) => !Number.isFinite(v) || v < 0 || v > 100)) {
+    if (hasUnits) {
+      for (const d of unitDrafts) {
+        if (!validWeight(num(d.weight))) {
+          setError("Unit weights must be numbers of 0 or more.");
+          return;
+        }
+        if (d.progress.some((v) => !validPct(num(v)))) {
+          setError("Enter a value from 0 to 100 for every activity of every unit.");
+          return;
+        }
+      }
+      const units = current.units.map((u) => {
+        const d = unitDrafts.find((x) => x.id === u.id);
+        return d
+          ? { ...u, weight: num(d.weight), progress: d.progress.map(num) }
+          : u;
+      });
+      setError("");
+      setSaved(false);
+      submitted.current = true;
+      onSave(current.progress, units);
+      return;
+    }
+    const values = drafts.map(num);
+    if (values.some((v) => !validPct(v))) {
       setError("Enter a value from 0 to 100 for every activity.");
       return;
     }
     setError("");
     setSaved(false);
     submitted.current = true;
-    onSave(values);
+    onSave(values, []);
   };
+  const pctInput = (
+    id: string,
+    value: string,
+    onChange: (v: string) => void,
+    suffix = "%",
+  ) => (
+    <div className="relative">
+      <input
+        id={id}
+        type="number"
+        inputMode="decimal"
+        min="0"
+        max={suffix === "%" ? "100" : undefined}
+        step="0.1"
+        dir="ltr"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
+      />
+      <span className="absolute right-3 top-3 text-xs text-slate-400">
+        {suffix}
+      </span>
+    </div>
+  );
+  const typesInUnits = FIREFIGHTING_TYPES.filter((t) =>
+    current.units.some((u) => u.type === t),
+  );
   return (
     <div className="mt-4 rounded-xl border border-slate-200">
       <button
@@ -5613,49 +5877,139 @@ function FirefightingProgressCard({
         </span>
         <span className="flex items-center gap-3">
           <span className="text-xs font-semibold text-slate-600" dir="ltr">
-            {pct(firefightingProgressOf(current))}
+            {pct(hasUnits ? liveTotal : firefightingProgressOf(current))}
           </span>
           <span className="text-slate-400">{open ? "▲" : "▼"}</span>
         </span>
       </button>
       {open && (
         <div className="border-t border-slate-100 p-4">
-          <div className="space-y-2">
-            {FIREFIGHTING_ACTIVITIES.map((name, i) => (
-              <div
-                key={name}
-                className="grid grid-cols-[1fr_96px] items-center gap-3"
-              >
-                <label
-                  htmlFor={`ffbulk-${i}`}
-                  className="text-xs font-semibold text-slate-700"
+          {hasUnits ? (
+            <div className="space-y-3">
+              {typesInUnits.map((type) => {
+                const group = liveUnits.filter((u) => u.type === type);
+                return (
+                  <div key={type} className="rounded-lg bg-[#eef3fb] p-2">
+                    <div className="flex items-center justify-between px-1 pb-1">
+                      <span className="text-xs font-bold text-[#1c3041]">
+                        {type}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-600" dir="ltr">
+                        {pct(
+                          weightedAvg(
+                            group.map((u) => unitProgressOf(u, liveWeights)),
+                            group.map((u) => u.weight),
+                          ),
+                        )}
+                      </span>
+                    </div>
+                    {group.map((u) => {
+                      const d = unitDrafts.find((x) => x.id === u.id);
+                      if (!d) return null;
+                      const isOpen = openUnit === u.id;
+                      return (
+                        <div key={u.id} className="mb-1 rounded-md bg-white">
+                          <button
+                            type="button"
+                            aria-expanded={isOpen}
+                            onClick={() => setOpenUnit(isOpen ? "" : u.id)}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start"
+                          >
+                            <span className="text-xs font-semibold text-slate-700">
+                              {u.name}
+                              <span className="ms-2 font-normal text-slate-400">
+                                {`weight ${u.weight}`}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="text-xs text-slate-600" dir="ltr">
+                                {pct(unitProgressOf(u, liveWeights))}
+                              </span>
+                              <span className="text-slate-400">
+                                {isOpen ? "▲" : "▼"}
+                              </span>
+                            </span>
+                          </button>
+                          {isOpen && (
+                            <div className="space-y-2 border-t border-slate-100 p-3">
+                              <div className="grid grid-cols-[1fr_96px] items-center gap-3">
+                                <label
+                                  htmlFor={`ffuw-${u.id}`}
+                                  className="text-xs font-semibold text-slate-700"
+                                >
+                                  Unit weight
+                                </label>
+                                {pctInput(
+                                  `ffuw-${u.id}`,
+                                  d.weight,
+                                  (v) =>
+                                    setUnitDrafts((prev) =>
+                                      prev.map((x) =>
+                                        x.id === u.id ? { ...x, weight: v } : x,
+                                      ),
+                                    ),
+                                  "×",
+                                )}
+                              </div>
+                              {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                                <div
+                                  key={name}
+                                  className="grid grid-cols-[1fr_96px] items-center gap-3"
+                                >
+                                  <label
+                                    htmlFor={`ffu-${u.id}-${i}`}
+                                    className="text-xs text-slate-700"
+                                  >
+                                    {name}
+                                  </label>
+                                  {pctInput(
+                                    `ffu-${u.id}-${i}`,
+                                    d.progress[i] ?? "",
+                                    (v) =>
+                                      setUnitDrafts((prev) =>
+                                        prev.map((x) =>
+                                          x.id === u.id
+                                            ? {
+                                                ...x,
+                                                progress: x.progress.map(
+                                                  (p, j) => (j === i ? v : p),
+                                                ),
+                                              }
+                                            : x,
+                                        ),
+                                      ),
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+                <div
+                  key={name}
+                  className="grid grid-cols-[1fr_96px] items-center gap-3"
                 >
-                  {name}
-                </label>
-                <div className="relative">
-                  <input
-                    id={`ffbulk-${i}`}
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    dir="ltr"
-                    value={drafts[i] ?? ""}
-                    onChange={(event) =>
-                      setDrafts((prev) =>
-                        prev.map((v, j) => (j === i ? event.target.value : v)),
-                      )
-                    }
-                    className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
-                  />
-                  <span className="absolute right-3 top-3 text-xs text-slate-400">
-                    %
-                  </span>
+                  <label
+                    htmlFor={`ffbulk-${i}`}
+                    className="text-xs font-semibold text-slate-700"
+                  >
+                    {name}
+                  </label>
+                  {pctInput(`ffbulk-${i}`, drafts[i] ?? "", (v) =>
+                    setDrafts((prev) => prev.map((x, j) => (j === i ? v : x))),
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <span
               className={`text-[11px] ${error || feedback ? "text-rose-600" : "text-slate-500"}`}
