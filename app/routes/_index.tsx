@@ -87,6 +87,7 @@ type DashboardData = {
   overall: number;
   userRole: string | null;
   siteMap: SiteMapInfo | null;
+  firefightingWeights?: number[];
   buildings: Building[];
   activeCount: number;
   removedCount: number;
@@ -781,6 +782,9 @@ const VIEW_MODES: ViewMode[] = ["Total", "Alarm", "Firefighting"];
 // The selected view mode (Total / Alarm / Firefighting). HomeRoute sets it on
 // every render, so every page reads the same mode.
 let VIEW_MODE: ViewMode = "Total";
+// Weights of the four firefighting activities, one setting for the whole
+// project (Settings page). HomeRoute sets it from the dashboard data.
+let FF_ACT_WEIGHTS: number[] = [25, 25, 25, 25];
 const MODE_STORAGE_KEY = "fafs-view-mode";
 const ffOf = (building: Building) => parseFirefighting(building.notes);
 const hasFirefighting = (building: Building) => ffOf(building).types.length > 0;
@@ -1504,6 +1508,20 @@ export default function HomeRoute() {
         bootstrapStatus === "ready" && session.status === "authenticated",
     },
   );
+  FF_ACT_WEIGHTS =
+    Array.isArray(dashboard.data?.firefightingWeights) &&
+    dashboard.data.firefightingWeights.length === 4
+      ? dashboard.data.firefightingWeights
+      : [25, 25, 25, 25];
+  const saveFfWeightsMutation = useActionMutation<
+    unknown,
+    { weights: number[] },
+    "set-firefighting-weights"
+  >("set-firefighting-weights", {
+    onSuccess: async () => {
+      await dashboard.refetch();
+    },
+  });
   const managedUsers = useActionQuery<ManagedUser[]>(
     "list-project-users",
     {},
@@ -1566,7 +1584,6 @@ export default function HomeRoute() {
       status: string;
       reason: string;
       units?: FirefightingUnit[];
-      actWeights?: number[];
     },
     "save-building-firefighting"
   >("save-building-firefighting", {
@@ -1585,9 +1602,6 @@ export default function HomeRoute() {
                       units: (
                         variables.units ?? parseFirefighting(current.notes).units
                       ).filter((u) => variables.types.includes(u.type)),
-                      actWeights:
-                        variables.actWeights ??
-                        parseFirefighting(current.notes).actWeights,
                       ...(variables.status
                         ? { status: variables.status, reason: variables.reason }
                         : {}),
@@ -4447,6 +4461,16 @@ export default function HomeRoute() {
                       ))}
                     </div>
                   </div>
+                  {data.userRole === "Site Manager" && (
+                    <FirefightingWeightsSettings
+                      weights={FF_ACT_WEIGHTS}
+                      saving={saveFfWeightsMutation.isPending}
+                      feedback={saveFfWeightsMutation.error?.message ?? ""}
+                      onSave={(weights) =>
+                        saveFfWeightsMutation.mutate({ weights })
+                      }
+                    />
+                  )}
                   <div className="divide-y divide-slate-100">
                     {[
                       ["Project", "Amreya Petroleum Refining Company"],
@@ -4895,7 +4919,7 @@ export default function HomeRoute() {
                             building={selected}
                             saving={saveFirefightingMutation.isPending}
                             feedback={firefightingFeedback}
-                            onSave={(progress, units, actWeights) => {
+                            onSave={(progress, units) => {
                               const cur = parseFirefighting(selected.notes);
                               saveFirefightingMutation.mutate({
                                 buildingId: selected.id,
@@ -4905,7 +4929,6 @@ export default function HomeRoute() {
                                 status: cur.status,
                                 reason: cur.reason,
                                 units,
-                                actWeights,
                               });
                             }}
                           />
@@ -5463,7 +5486,6 @@ type FirefightingData = {
   units: FirefightingUnit[];
   actWeights: number[];
 };
-const DEFAULT_FF_ACT_WEIGHTS = [25, 25, 25, 25];
 function parseFirefighting(notes: string | undefined): FirefightingData {
   const zero = FIREFIGHTING_ACTIVITIES.map(() => 0);
   const empty: FirefightingData = {
@@ -5473,7 +5495,7 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
     status: "",
     reason: "",
     units: [],
-    actWeights: [...DEFAULT_FF_ACT_WEIGHTS],
+    actWeights: [...FF_ACT_WEIGHTS],
   };
   if (!notes) return empty;
   try {
@@ -5507,10 +5529,7 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
               }),
             }))
         : [],
-      actWeights: FIREFIGHTING_ACTIVITIES.map((_, i) => {
-        const n = Number(Array.isArray(ff.actWeights) ? ff.actWeights[i] : NaN);
-        return Number.isFinite(n) && n >= 0 ? n : DEFAULT_FF_ACT_WEIGHTS[i];
-      }),
+      actWeights: [...FF_ACT_WEIGHTS],
       progress: FIREFIGHTING_ACTIVITIES.map((_, i) => {
         const n = Number(Array.isArray(ff.progress) ? ff.progress[i] : 0);
         return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
@@ -5622,6 +5641,97 @@ const FF_STATUS_ORDER: [string, string, string][] = [
   ["Removed from scope", "bg-slate-500", "text-slate-600"],
 ];
 
+// One setting for all firefighting: the weight of each of the four activities.
+function FirefightingWeightsSettings({
+  weights,
+  saving,
+  feedback,
+  onSave,
+}: {
+  weights: number[];
+  saving: boolean;
+  feedback: string;
+  onSave: (weights: number[]) => void;
+}) {
+  const [drafts, setDrafts] = useState<string[]>(weights.map((v) => String(v)));
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const key = weights.join(",");
+  useEffect(() => {
+    setDrafts(weights.map((v) => String(v)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const save = () => {
+    const values = drafts.map((d) => (d.trim() === "" ? NaN : Number(d)));
+    if (values.some((v) => !Number.isFinite(v) || v < 0 || v > 100)) {
+      setError("Enter a weight from 0 to 100 for every activity.");
+      return;
+    }
+    if (values.every((v) => v === 0)) {
+      setError("At least one weight must be above 0.");
+      return;
+    }
+    setError("");
+    setSaved(true);
+    onSave(values);
+  };
+  return (
+    <div className="mb-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
+      <div className="text-xs font-bold text-[#1c3041]">
+        Firefighting activity weights
+      </div>
+      <p className="mt-1 text-xs text-slate-500">
+        One setting for all firefighting units and buildings. Only the
+        proportions matter (25 / 25 / 25 / 25 means equal).
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+          <div key={name}>
+            <label
+              htmlFor={`ffgw-${i}`}
+              className="mb-1 block text-[11px] font-semibold text-slate-600"
+            >
+              {name}
+            </label>
+            <input
+              id={`ffgw-${i}`}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              max="100"
+              step="0.1"
+              dir="ltr"
+              value={drafts[i] ?? ""}
+              onChange={(event) => {
+                setSaved(false);
+                setDrafts((prev) =>
+                  prev.map((v, j) => (j === i ? event.target.value : v)),
+                );
+              }}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-[#829aaa]"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <span
+          className={`text-[11px] ${error || feedback ? "text-rose-600" : "text-slate-500"}`}
+        >
+          {error || feedback || (saved && !saving ? "Saved." : "")}
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={save}
+          className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {saving ? "Saving…" : "Save weights"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FirefightingProgressCard({
   building,
   saving,
@@ -5631,11 +5741,7 @@ function FirefightingProgressCard({
   building: Building;
   saving: boolean;
   feedback: string;
-  onSave: (
-    progress: number[],
-    units: FirefightingUnit[],
-    actWeights: number[],
-  ) => void;
+  onSave: (progress: number[], units: FirefightingUnit[]) => void;
 }) {
   const current = parseFirefighting(building.notes);
   const [open, setOpen] = useState(false);
@@ -5653,9 +5759,6 @@ function FirefightingProgressCard({
   const [unitDrafts, setUnitDrafts] = useState<UnitDraft[]>(
     toUnitDrafts(current),
   );
-  const [wDrafts, setWDrafts] = useState<string[]>(
-    current.actWeights.map((v) => String(v)),
-  );
   const [openUnit, setOpenUnit] = useState<string>("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -5664,7 +5767,6 @@ function FirefightingProgressCard({
     const ff = parseFirefighting(building.notes);
     setDrafts(ff.progress.map((v) => String(v)));
     setUnitDrafts(toUnitDrafts(ff));
-    setWDrafts(ff.actWeights.map((v) => String(v)));
     if (submitted.current) {
       submitted.current = false;
       setSaved(true);
@@ -5682,7 +5784,7 @@ function FirefightingProgressCard({
   const validPct = (v: number) => Number.isFinite(v) && v >= 0 && v <= 100;
   const validWeight = (v: number) => Number.isFinite(v) && v >= 0;
   // Live values from the drafts, so the percentages update while typing.
-  const liveWeights = wDrafts.map((d) => (validWeight(num(d)) ? num(d) : 0));
+  const liveWeights = FF_ACT_WEIGHTS;
   const liveUnits: FirefightingUnit[] = current.units.map((u) => {
     const d = unitDrafts.find((x) => x.id === u.id);
     if (!d) return u;
@@ -5696,23 +5798,12 @@ function FirefightingProgressCard({
     ? firefightingProgressOf({
         ...current,
         units: liveUnits,
-        actWeights: liveWeights,
       })
     : firefightingProgressOf({
         ...current,
         progress: drafts.map((d) => (validPct(num(d)) ? num(d) : 0)),
-        actWeights: liveWeights,
       });
   const save = () => {
-    const wValues = wDrafts.map(num);
-    if (wValues.some((v) => !validWeight(v))) {
-      setError("Activity weights must be numbers of 0 or more.");
-      return;
-    }
-    if (wValues.every((v) => v === 0)) {
-      setError("At least one activity weight must be above 0.");
-      return;
-    }
     if (hasUnits) {
       for (const d of unitDrafts) {
         if (!validWeight(num(d.weight))) {
@@ -5733,7 +5824,7 @@ function FirefightingProgressCard({
       setError("");
       setSaved(false);
       submitted.current = true;
-      onSave(current.progress, units, wValues);
+      onSave(current.progress, units);
       return;
     }
     const values = drafts.map(num);
@@ -5744,7 +5835,7 @@ function FirefightingProgressCard({
     setError("");
     setSaved(false);
     submitted.current = true;
-    onSave(values, [], wValues);
+    onSave(values, []);
   };
   const pctInput = (
     id: string,
@@ -5793,26 +5884,6 @@ function FirefightingProgressCard({
       </button>
       {open && (
         <div className="border-t border-slate-100 p-4">
-          <div className="mb-3 rounded-lg bg-slate-50 p-3">
-            <div className="mb-2 text-[11px] font-semibold text-slate-600">
-              Activity weights
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {FIREFIGHTING_ACTIVITIES.map((name, i) => (
-                <div key={name}>
-                  <label
-                    htmlFor={`ffw-${i}`}
-                    className="mb-1 block text-[11px] text-slate-600"
-                  >
-                    {name}
-                  </label>
-                  {pctInput(`ffw-${i}`, wDrafts[i] ?? "", (v) =>
-                    setWDrafts((prev) => prev.map((x, j) => (j === i ? v : x))),
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
           {hasUnits ? (
             <div className="space-y-3">
               {typesInUnits.map((type) => {
