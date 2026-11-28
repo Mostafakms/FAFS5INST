@@ -14,14 +14,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install sharp
-        run: npm install --no-save --no-package-lock sharp
+      - name: Install sharp (isolated)
+        run: |
+          mkdir -p "$RUNNER_TEMP/sharp"
+          cd "$RUNNER_TEMP/sharp"
+          npm init -y >/dev/null
+          npm install sharp --silent --no-fund --no-audit
 
       - name: Rasterize icon PNGs
         run: |
-          node - <<'NODE'
+          NODE_PATH="$RUNNER_TEMP/sharp/node_modules" node - <<'NODE'
           const sharp = require('sharp');
           const fs = require('fs');
           const jobs = [
