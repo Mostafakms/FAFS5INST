@@ -392,6 +392,11 @@ const AR_TEXT: Record<string, string> = {
   "Relative weight": "الوزن النسبي",
   "Save building": "حفظ المبنى",
   "Update activity progress": "تحديث تقدم النشاط",
+  "Save alarm progress": "حفظ تقدم الإنذار",
+  "Save firefighting progress": "حفظ تقدم الإطفاء",
+  "Firefighting progress saved.": "تم حفظ تقدم الإطفاء.",
+  "Values are saved together for this building.": "تُحفظ كل القيم معاً لهذا المبنى.",
+  "Enter a value from 0 to 100 for every activity.": "أدخل قيمة من 0 إلى 100 لكل نشاط.",
   "Progress updates are disabled for excluded buildings.":
     "تحديث التقدم غير متاح للمباني خارج النطاق.",
   "Progress saved": "تم حفظ التقدم",
@@ -988,8 +993,6 @@ export default function HomeRoute() {
     });
     return () => observer.disconnect();
   }, [lang]);
-  const [updateActivity, setUpdateActivity] = useState("");
-  const [updateValue, setUpdateValue] = useState("");
   const [updateNote, setUpdateNote] = useState("");
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkDrafts, setBulkDrafts] = useState<Record<string, string>>({});
@@ -1613,39 +1616,6 @@ export default function HomeRoute() {
     },
     onError: (error) => setActivityWeightFeedback(error.message),
   });
-  const updateMutation = useActionMutation<
-    unknown,
-    UpdateInput,
-    "update-activity-progress"
-  >("update-activity-progress", {
-    onSuccess: (_result, variables) => {
-      setSelected((current) => {
-        if (!current || current.id !== variables.buildingId) return current;
-        const activities = current.activities.map((activity) =>
-          activity.id === variables.activityId
-            ? {
-                ...activity,
-                progress: variables.progress,
-                contribution:
-                  (variables.progress * Number(activity.weight)) / 100,
-                updatedAt: new Date().toISOString(),
-              }
-            : activity,
-        );
-        return {
-          ...current,
-          activities,
-          progress: activities.reduce(
-            (sum, activity) => sum + activity.contribution,
-            0,
-          ),
-        };
-      });
-      setFeedback("Progress saved and project totals recalculated.");
-      setUpdateNote("");
-    },
-    onError: (error) => setFeedback(error.message),
-  });
   const bulkMutation = useActionMutation<
     unknown,
     {
@@ -2114,8 +2084,6 @@ export default function HomeRoute() {
 
   function openBuilding(building: Building) {
     setSelected(building);
-    setUpdateActivity(building.activities[0]?.id ?? "");
-    setUpdateValue(String(building.activities[0]?.progress ?? 0));
     setBulkEditing(false);
     setFeedback("");
   }
@@ -2193,16 +2161,6 @@ export default function HomeRoute() {
     bulkMutation.mutate({
       buildingId: selected.id,
       updates,
-      note: updateNote,
-    });
-  }
-
-  function saveProgress() {
-    if (!selected || !updateActivity || updateValue === "") return;
-    updateMutation.mutate({
-      buildingId: selected.id,
-      activityId: updateActivity,
-      progress: Number(updateValue),
       note: updateNote,
     });
   }
@@ -4923,152 +4881,122 @@ export default function HomeRoute() {
                           ))}
                         </div>
                       )}
-                      {mode !== "Firefighting" && !isRemoved(selected) && (
-                        <div className="mt-6 border-t border-slate-100 pt-5">
-                          <div className="mb-3 flex items-center justify-between gap-3">
-                            <h3 className="text-xs font-bold text-[#1c3041]">
-                              Update activity progress
-                            </h3>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                bulkEditing
-                                  ? setBulkEditing(false)
-                                  : startBulkEditing()
-                              }
-                              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                              {bulkEditing ? "Single activity" : "Edit all activities"}
-                            </button>
-                          </div>
-                          {bulkEditing ? (
-                            <div className="space-y-2">
-                              {selected.activities.map((activity) => (
-                                <div
-                                  key={activity.id}
-                                  className="grid grid-cols-[1fr_96px] items-center gap-3"
-                                >
-                                  <label
-                                    htmlFor={`bulk-${activity.id}`}
-                                    className="text-xs font-semibold text-slate-700"
-                                  >
-                                    {activity.name}
-                                    <span className="ms-2 font-normal text-slate-400">
-                                      {`${Number(activity.weight)}% weight`}
-                                    </span>
-                                  </label>
-                                  <div className="relative">
-                                    <input
-                                      id={`bulk-${activity.id}`}
-                                      type="number"
-                                      inputMode="decimal"
-                                      min="0"
-                                      max="100"
-                                      step="0.1"
-                                      value={bulkDrafts[activity.id] ?? ""}
-                                      onChange={(event) =>
-                                        setBulkDrafts((current) => ({
-                                          ...current,
-                                          [activity.id]: event.target.value,
-                                        }))
-                                      }
-                                      className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
-                                    />
-                                    <span className="absolute right-3 top-3 text-xs text-slate-400">
-                                      %
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                          <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
-                            <select
-                              value={updateActivity}
-                              onChange={(event) => {
-                                setUpdateActivity(event.target.value);
-                                setUpdateValue(
-                                  String(
-                                    selected.activities.find(
-                                      (item) => item.id === event.target.value,
-                                    )?.progress ?? 0,
-                                  ),
-                                );
-                              }}
-                              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-[#829aaa]"
-                            >
-                              <option value="">Select activity</option>
-                              {selected.activities.map((activity) => (
-                                <option key={activity.id} value={activity.id}>
-                                  {activity.name}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="relative">
-                              <input
-                                aria-label="Activity progress percentage"
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="0.1"
-                                value={updateValue}
-                                onChange={(event) =>
-                                  setUpdateValue(event.target.value)
-                                }
-                                className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
-                              />
-                              <span className="absolute right-3 top-3 text-xs text-slate-400">
-                                %
-                              </span>
-                            </div>
-                          </div>
-                          )}
-                          <textarea
-                            value={updateNote}
-                            onChange={(event) =>
-                              setUpdateNote(event.target.value)
-                            }
-                            maxLength={1000}
-                            rows={2}
-                            placeholder="Optional update note"
-                            className="mt-3 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-xs outline-none placeholder:text-slate-400 focus:border-[#829aaa]"
+                      {hasFirefighting(selected) &&
+                        data?.userRole === "Site Manager" && (
+                          <FirefightingProgressCard
+                            building={selected}
+                            saving={saveFirefightingMutation.isPending}
+                            feedback={firefightingFeedback}
+                            onSave={(progress) => {
+                              const cur = parseFirefighting(selected.notes);
+                              saveFirefightingMutation.mutate({
+                                buildingId: selected.id,
+                                types: cur.types,
+                                comment: cur.comment,
+                                progress,
+                                status: cur.status,
+                                reason: cur.reason,
+                              });
+                            }}
                           />
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                            <span
-                              className={`text-[11px] ${feedback && !feedback.startsWith("Progress saved") ? "text-rose-600" : "text-slate-500"}`}
-                            >
-                              {feedback ||
-                                "Progress values are validated and saved with history."}
+                        )}
+                      {!isAlarmRemoved(selected) && (
+                        <div className="mt-4 rounded-xl border border-slate-200">
+                          <button
+                            type="button"
+                            aria-expanded={bulkEditing}
+                            onClick={() =>
+                              bulkEditing
+                                ? setBulkEditing(false)
+                                : startBulkEditing()
+                            }
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start"
+                          >
+                            <span className="text-xs font-bold text-[#1c3041]">
+                              Alarm progress
                             </span>
-                            {bulkEditing ? (
-                              <button
-                                disabled={bulkMutation.isPending}
-                                onClick={saveBulkProgress}
-                                className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
-                              >
-                                {bulkMutation.isPending ? "Saving…" : "Save all"}
-                              </button>
-                            ) : (
-                            <button
-                              disabled={
-                                !updateActivity ||
-                                updateValue === "" ||
-                                Number(updateValue) < 0 ||
-                                Number(updateValue) > 100 ||
-                                updateMutation.isPending
-                              }
-                              onClick={saveProgress}
-                              className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
-                            >
-                              {updateMutation.isPending
-                                ? "Saving…"
-                                : "Save progress"}
-                            </button>
-                            )}
-                          </div>
+                            <span className="flex items-center gap-3">
+                              <span className="text-xs font-semibold text-slate-600">
+                                {pct(selected.progress)}
+                              </span>
+                              <span className="text-slate-400">
+                                {bulkEditing ? "▲" : "▼"}
+                              </span>
+                            </span>
+                          </button>
+                          {bulkEditing && (
+                            <div className="border-t border-slate-100 p-4">
+                              <div className="space-y-2">
+                                {selected.activities.map((activity) => (
+                                  <div
+                                    key={activity.id}
+                                    className="grid grid-cols-[1fr_96px] items-center gap-3"
+                                  >
+                                    <label
+                                      htmlFor={`bulk-${activity.id}`}
+                                      className="text-xs font-semibold text-slate-700"
+                                    >
+                                      {activity.name}
+                                      <span className="ms-2 font-normal text-slate-400">
+                                        {`${Number(activity.weight)}% weight`}
+                                      </span>
+                                    </label>
+                                    <div className="relative">
+                                      <input
+                                        id={`bulk-${activity.id}`}
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                        value={bulkDrafts[activity.id] ?? ""}
+                                        onChange={(event) =>
+                                          setBulkDrafts((current) => ({
+                                            ...current,
+                                            [activity.id]: event.target.value,
+                                          }))
+                                        }
+                                        className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
+                                      />
+                                      <span className="absolute right-3 top-3 text-xs text-slate-400">
+                                        %
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <textarea
+                                value={updateNote}
+                                onChange={(event) =>
+                                  setUpdateNote(event.target.value)
+                                }
+                                maxLength={1000}
+                                rows={2}
+                                placeholder="Optional update note"
+                                className="mt-3 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-xs outline-none placeholder:text-slate-400 focus:border-[#829aaa]"
+                              />
+                              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                <span
+                                  className={`text-[11px] ${feedback && !feedback.startsWith("All progress") ? "text-rose-600" : "text-slate-500"}`}
+                                >
+                                  {feedback ||
+                                    "Progress values are validated and saved with history."}
+                                </span>
+                                <button
+                                  disabled={bulkMutation.isPending}
+                                  onClick={saveBulkProgress}
+                                  className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  {bulkMutation.isPending
+                                    ? "Saving…"
+                                    : "Save alarm progress"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
-                      {mode !== "Firefighting" && isRemoved(selected) && (
+                      {isAlarmRemoved(selected) && (
                         <div className="mt-5 text-[11px] text-slate-400">
                           Progress updates are disabled for excluded buildings.
                         </div>
@@ -5628,6 +5556,130 @@ const FF_STATUS_ORDER: [string, string, string][] = [
   ["Finished", "bg-emerald-500", "text-emerald-700"],
   ["Removed from scope", "bg-slate-500", "text-slate-600"],
 ];
+
+function FirefightingProgressCard({
+  building,
+  saving,
+  feedback,
+  onSave,
+}: {
+  building: Building;
+  saving: boolean;
+  feedback: string;
+  onSave: (progress: number[]) => void;
+}) {
+  const current = parseFirefighting(building.notes);
+  const [open, setOpen] = useState(false);
+  const [drafts, setDrafts] = useState<string[]>(
+    current.progress.map((v) => String(v)),
+  );
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const submitted = useRef(false);
+  useEffect(() => {
+    setDrafts(parseFirefighting(building.notes).progress.map((v) => String(v)));
+    if (submitted.current) {
+      submitted.current = false;
+      setSaved(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [building.id, building.notes]);
+  useEffect(() => {
+    setOpen(false);
+    setSaved(false);
+    setError("");
+  }, [building.id]);
+  const save = () => {
+    const values = drafts.map((d) => Number(d));
+    if (drafts.some((d) => d === "") || values.some((v) => !Number.isFinite(v) || v < 0 || v > 100)) {
+      setError("Enter a value from 0 to 100 for every activity.");
+      return;
+    }
+    setError("");
+    setSaved(false);
+    submitted.current = true;
+    onSave(values);
+  };
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start"
+      >
+        <span className="text-xs font-bold text-[#1c3041]">
+          Firefighting progress
+        </span>
+        <span className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-slate-600" dir="ltr">
+            {pct(firefightingProgressOf(current))}
+          </span>
+          <span className="text-slate-400">{open ? "▲" : "▼"}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4">
+          <div className="space-y-2">
+            {FIREFIGHTING_ACTIVITIES.map((name, i) => (
+              <div
+                key={name}
+                className="grid grid-cols-[1fr_96px] items-center gap-3"
+              >
+                <label
+                  htmlFor={`ffbulk-${i}`}
+                  className="text-xs font-semibold text-slate-700"
+                >
+                  {name}
+                </label>
+                <div className="relative">
+                  <input
+                    id={`ffbulk-${i}`}
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    dir="ltr"
+                    value={drafts[i] ?? ""}
+                    onChange={(event) =>
+                      setDrafts((prev) =>
+                        prev.map((v, j) => (j === i ? event.target.value : v)),
+                      )
+                    }
+                    className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
+                  />
+                  <span className="absolute right-3 top-3 text-xs text-slate-400">
+                    %
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <span
+              className={`text-[11px] ${error || feedback ? "text-rose-600" : "text-slate-500"}`}
+            >
+              {error ||
+                feedback ||
+                (saved
+                  ? "Firefighting progress saved."
+                  : "Values are saved together for this building.")}
+            </span>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={save}
+              className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {saving ? "Saving…" : "Save firefighting progress"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FirefightingSection({
   building,
@@ -6424,3 +6476,4 @@ function mostRecentUpdate(building: Building) {
   const date = dates[dates.length - 1];
   return date ? dateText(date) : "not updated";
 }
+
