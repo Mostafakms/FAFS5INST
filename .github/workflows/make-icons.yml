@@ -51,10 +51,23 @@ jobs:
           });
           NODE
 
+      - name: Patch sidebar logo
+        run: |
+          python3 - <<'PY'
+          p = 'app/routes/_index.tsx'
+          s = open(p).read()
+          a = s.index('<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500')
+          b = s.index('</div>', a) + len('</div>')
+          new = '<img src="/icon-192.png" alt="APRC" width={40} height={40} className="h-10 w-10 rounded-xl object-contain" />'
+          assert 'IconBuildingFactory2' in s[a:b]
+          s = s[:a] + new + s[b:]
+          open(p, 'w').write(s)
+          PY
+
       - name: Commit PNGs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/icon-*.png public/favicon-*.png
+          git add public/icon-*.png public/favicon-*.png app/routes/_index.tsx
           git commit -m "Generate app icon PNGs from SVG masters" || echo "nothing to commit"
           git push
