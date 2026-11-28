@@ -2514,9 +2514,7 @@ export default function HomeRoute() {
       >
         <div className="flex h-full w-[248px] flex-col bg-[#101e2b] text-slate-300 shadow-xl lg:shadow-none">
           <div className="flex h-[78px] items-center gap-3 border-b border-white/10 px-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-[#132330]">
-              <IconBuildingFactory2 size={22} stroke={1.8} />
-            </div>
+            <img src="/icon-192.png" alt="APRC" width={40} height={40} className="h-10 w-10 rounded-xl object-contain" />
             <div>
               <div className="text-[14px] font-bold tracking-[0.1em] text-white">
                 APRC
