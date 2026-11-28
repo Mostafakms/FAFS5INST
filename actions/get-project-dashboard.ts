@@ -20,14 +20,23 @@ export default defineAction({
       .where(eq(schema.projectUsers.email, email))
       .limit(1);
     if (!user?.active) fail("Your project account is inactive", { statusCode: 403 });
-    const [buildings, activities, progress, history, siteMaps] = await Promise.all([
+    const [buildings, activities, progress, history, siteMaps, ffWeightsRows] = await Promise.all([
       db.select().from(schema.buildings).orderBy(asc(schema.buildings.buildingNumber)),
       db.select().from(schema.activities).where(eq(schema.activities.active, true)).orderBy(asc(schema.activities.position)),
       db.select().from(schema.activityProgress),
       db.select().from(schema.progressHistory).orderBy(desc(schema.progressHistory.changedAt)).limit(8),
       db.select({ filename: schema.siteMaps.filename, contentType: schema.siteMaps.contentType, updatedAt: schema.siteMaps.updatedAt })
         .from(schema.siteMaps).where(eq(schema.siteMaps.id, "primary")).limit(1),
+      db.select({ dataBase64: schema.siteMaps.dataBase64 })
+        .from(schema.siteMaps).where(eq(schema.siteMaps.id, "firefighting-weights")).limit(1),
     ]);
+    let firefightingWeights = [25, 25, 25, 25];
+    try {
+      const parsed = JSON.parse(ffWeightsRows[0]?.dataBase64 ?? "null");
+      if (Array.isArray(parsed) && parsed.length === 4 && parsed.every((n) => Number.isFinite(n) && n >= 0)) firefightingWeights = parsed;
+    } catch {
+      // keep the default
+    }
     const progressByBuilding = new Map<string, typeof progress>();
     for (const row of progress) {
       const rows = progressByBuilding.get(row.buildingId) ?? [];
@@ -58,6 +67,7 @@ export default defineAction({
       overall,
       userRole: user.role,
       siteMap: siteMaps[0] ?? null,
+      firefightingWeights,
       buildings: summarized,
       activeCount: activeBuildings.length,
       removedCount: summarized.filter((building) => building.manualStatus === "Removed from scope").length,
