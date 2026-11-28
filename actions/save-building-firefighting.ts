@@ -17,9 +17,31 @@ export default defineAction({
     progress: z.array(z.number().min(0).max(100)).length(4).optional(),
     status: z.enum(["", "Hold", "Delayed", "Removed from scope"]).optional(),
     reason: z.string().max(500).optional(),
+    units: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          type: z.enum(TYPES),
+          name: z.string().min(1).max(200),
+          weight: z.number().min(0).max(100000),
+          progress: z.array(z.number().min(0).max(100)).length(4),
+        }),
+      )
+      .max(60)
+      .optional(),
+    actWeights: z.array(z.number().min(0).max(100000)).length(4).optional(),
   }),
   requiresAuth: true,
-  run: async ({ buildingId, types, comment, progress, status, reason }) => {
+  run: async ({
+    buildingId,
+    types,
+    comment,
+    progress,
+    status,
+    reason,
+    units,
+    actWeights,
+  }) => {
     const email = getRequestUserEmail();
     if (!email) fail("Authentication required", { statusCode: 401 });
     const db = getDb();
@@ -60,12 +82,25 @@ export default defineAction({
     if (status && !(reason ?? "").trim())
       fail("A reason is required for this status", { statusCode: 400 });
     const unique = TYPES.filter((type) => types.includes(type));
+    // Keep units and activity weights that the caller did not send.
+    let stored: { units?: unknown[]; actWeights?: unknown } = {};
+    try {
+      stored = existing.trim() ? JSON.parse(existing).firefighting ?? {} : {};
+    } catch {
+      stored = {};
+    }
+    const keptUnits = (units ?? (stored.units as typeof units) ?? []).filter(
+      (u) => unique.includes(u.type),
+    );
+    const keptWeights = actWeights ?? stored.actWeights;
     const notes = unique.length
       ? JSON.stringify({
           firefighting: {
             types: unique,
             comment: comment.trim(),
             progress: progress ?? [0, 0, 0, 0],
+            ...(keptUnits.length ? { units: keptUnits } : {}),
+            ...(keptWeights ? { actWeights: keptWeights } : {}),
             ...(status ? { status, reason: (reason ?? "").trim() } : {}),
           },
         })
