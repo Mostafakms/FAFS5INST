@@ -991,6 +991,8 @@ export default function HomeRoute() {
   const [updateActivity, setUpdateActivity] = useState("");
   const [updateValue, setUpdateValue] = useState("");
   const [updateNote, setUpdateNote] = useState("");
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkDrafts, setBulkDrafts] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState("");
   const [buildingEditor, setBuildingEditor] = useState<Building | "new" | null>(
     null,
@@ -1644,6 +1646,47 @@ export default function HomeRoute() {
     },
     onError: (error) => setFeedback(error.message),
   });
+  const bulkMutation = useActionMutation<
+    unknown,
+    {
+      buildingId: string;
+      updates: { activityId: string; progress: number }[];
+      note?: string;
+    },
+    "update-building-progress"
+  >("update-building-progress", {
+    onSuccess: (_result, variables) => {
+      setSelected((current) => {
+        if (!current || current.id !== variables.buildingId) return current;
+        const byId = new Map(
+          variables.updates.map((u) => [u.activityId, u.progress]),
+        );
+        const activities = current.activities.map((activity) =>
+          byId.has(activity.id)
+            ? {
+                ...activity,
+                progress: byId.get(activity.id)!,
+                contribution:
+                  (byId.get(activity.id)! * Number(activity.weight)) / 100,
+                updatedAt: new Date().toISOString(),
+              }
+            : activity,
+        );
+        return {
+          ...current,
+          activities,
+          progress: activities.reduce(
+            (sum, activity) => sum + activity.contribution,
+            0,
+          ),
+        };
+      });
+      setFeedback("All progress values saved and project totals recalculated.");
+      setUpdateNote("");
+      setBulkEditing(false);
+    },
+    onError: (error) => setFeedback(error.message),
+  });
   const data = dashboard.data;
   useEffect(() => {
     let active = true;
@@ -2073,6 +2116,7 @@ export default function HomeRoute() {
     setSelected(building);
     setUpdateActivity(building.activities[0]?.id ?? "");
     setUpdateValue(String(building.activities[0]?.progress ?? 0));
+    setBulkEditing(false);
     setFeedback("");
   }
 
@@ -2115,6 +2159,42 @@ export default function HomeRoute() {
     }
     setActivityWeightFeedback("");
     updateActivityWeightMutation.mutate({ weights });
+  }
+
+  function startBulkEditing() {
+    if (!selected) return;
+    setBulkDrafts(
+      Object.fromEntries(
+        selected.activities.map((activity) => [
+          activity.id,
+          String(Number(activity.progress)),
+        ]),
+      ),
+    );
+    setFeedback("");
+    setBulkEditing(true);
+  }
+
+  function saveBulkProgress() {
+    if (!selected) return;
+    const updates = selected.activities.map((activity) => ({
+      activityId: activity.id,
+      progress: Number(bulkDrafts[activity.id]),
+    }));
+    if (
+      updates.some(
+        ({ progress }) =>
+          !Number.isFinite(progress) || progress < 0 || progress > 100,
+      )
+    ) {
+      setFeedback("Enter a value from 0 to 100 for every activity.");
+      return;
+    }
+    bulkMutation.mutate({
+      buildingId: selected.id,
+      updates,
+      note: updateNote,
+    });
   }
 
   function saveProgress() {
@@ -4845,9 +4925,63 @@ export default function HomeRoute() {
                       )}
                       {mode !== "Firefighting" && !isRemoved(selected) && (
                         <div className="mt-6 border-t border-slate-100 pt-5">
-                          <h3 className="mb-3 text-xs font-bold text-[#1c3041]">
-                            Update activity progress
-                          </h3>
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-xs font-bold text-[#1c3041]">
+                              Update activity progress
+                            </h3>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                bulkEditing
+                                  ? setBulkEditing(false)
+                                  : startBulkEditing()
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              {bulkEditing ? "Single activity" : "Edit all activities"}
+                            </button>
+                          </div>
+                          {bulkEditing ? (
+                            <div className="space-y-2">
+                              {selected.activities.map((activity) => (
+                                <div
+                                  key={activity.id}
+                                  className="grid grid-cols-[1fr_96px] items-center gap-3"
+                                >
+                                  <label
+                                    htmlFor={`bulk-${activity.id}`}
+                                    className="text-xs font-semibold text-slate-700"
+                                  >
+                                    {activity.name}
+                                    <span className="ms-2 font-normal text-slate-400">
+                                      {`${Number(activity.weight)}% weight`}
+                                    </span>
+                                  </label>
+                                  <div className="relative">
+                                    <input
+                                      id={`bulk-${activity.id}`}
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      max="100"
+                                      step="0.1"
+                                      value={bulkDrafts[activity.id] ?? ""}
+                                      onChange={(event) =>
+                                        setBulkDrafts((current) => ({
+                                          ...current,
+                                          [activity.id]: event.target.value,
+                                        }))
+                                      }
+                                      className="h-10 w-full rounded-lg border border-slate-200 px-3 pr-8 text-xs outline-none focus:border-[#829aaa]"
+                                    />
+                                    <span className="absolute right-3 top-3 text-xs text-slate-400">
+                                      %
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
                           <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
                             <select
                               value={updateActivity}
@@ -4888,6 +5022,7 @@ export default function HomeRoute() {
                               </span>
                             </div>
                           </div>
+                          )}
                           <textarea
                             value={updateNote}
                             onChange={(event) =>
@@ -4905,6 +5040,15 @@ export default function HomeRoute() {
                               {feedback ||
                                 "Progress values are validated and saved with history."}
                             </span>
+                            {bulkEditing ? (
+                              <button
+                                disabled={bulkMutation.isPending}
+                                onClick={saveBulkProgress}
+                                className="rounded-lg bg-[#142b3c] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#1d3b50] disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                {bulkMutation.isPending ? "Saving…" : "Save all"}
+                              </button>
+                            ) : (
                             <button
                               disabled={
                                 !updateActivity ||
@@ -4920,6 +5064,7 @@ export default function HomeRoute() {
                                 ? "Saving…"
                                 : "Save progress"}
                             </button>
+                            )}
                           </div>
                         </div>
                       )}
