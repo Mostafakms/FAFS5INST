@@ -868,7 +868,7 @@ export default function HomeRoute() {
   const [selected, setSelected] = useState<Building | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [ffFilter, setFfFilter] = useState("all");
+  const [ffFilter, setFfFilter] = useState<string[]>([]);
   const [mode, setModeState] = useState<ViewMode>("Total");
   VIEW_MODE = mode;
   const dashTab = mode;
@@ -1032,7 +1032,7 @@ export default function HomeRoute() {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
   const mapFilterCount =
-    statusFilter.length + (ffFilter === "all" ? 0 : 1);
+    statusFilter.length + ffFilter.length;
   const mapViewportRef = useRef<HTMLDivElement>(null);
   const mapShellRef = useRef<HTMLDivElement>(null);
   const [mapAspect, setMapAspect] = useState(3877 / 2009);
@@ -3932,7 +3932,7 @@ export default function HomeRoute() {
                                 id="map-filters-panel"
                                 role="dialog"
                                 aria-label="Map filters"
-                                className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-y-auto rounded-t-2xl border-t border-slate-200 bg-white px-3 pb-16 pt-2.5 shadow-2xl"
+                                className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-y-auto rounded-t-2xl border-t border-slate-200 bg-white px-3 pb-16 pt-2.5 shadow-2xl md:inset-x-auto md:bottom-[4.25rem] md:right-3 md:max-h-[60%] md:w-[28rem] md:rounded-2xl md:border md:pb-3"
                               >
                                 <div className="mb-2 flex items-center justify-between">
                                   <span className="h-1 w-10 rounded-full bg-slate-200" />
@@ -5412,40 +5412,54 @@ const buildingOverallOf = (b: Building) => {
         firefightingProgressOf(ff) * OVERALL_WEIGHTS.firefighting
     : b.progress;
 };
-// "all" | "any" | one of FIREFIGHTING_TYPES
-const matchesFirefightingFilter = (b: Building, filter: string) => {
-  if (filter === "all") return true;
+// [] = all buildings; ["any"] = has firefighting; otherwise one or more of
+// FIREFIGHTING_TYPES (a building matches if it has any selected type).
+const matchesFirefightingFilter = (b: Building, filter: string[]) => {
+  if (filter.length === 0) return true;
   const types = parseFirefighting(b.notes).types;
-  return filter === "any" ? types.length > 0 : types.includes(filter);
+  if (filter.includes("any")) return types.length > 0;
+  return filter.some((f) => types.includes(f));
 };
 
 function FirefightingFilterChips({
   value,
   onChange,
 }: {
-  value: string;
-  onChange: (next: string) => void;
+  value: string[];
+  onChange: (next: string[]) => void;
 }) {
   const chip = (active: boolean) =>
     `inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-semibold ${active ? "border-red-700 bg-red-700 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`;
   const options: [string, string][] = [
-    ["all", "All buildings"],
     ["any", "Has firefighting"],
     ...FIREFIGHTING_TYPES.map((t): [string, string] => [t, t]),
   ];
+  const toggle = (key: string) => {
+    if (key === "any") return onChange(value.includes("any") ? [] : ["any"]);
+    const rest = value.filter((v) => v !== "any");
+    onChange(rest.includes(key) ? rest.filter((v) => v !== key) : [...rest, key]);
+  };
   return (
     <div
       role="group"
       aria-label="Filter by firefighting"
       className="flex flex-wrap gap-1.5"
     >
+      <button
+        type="button"
+        aria-pressed={value.length === 0}
+        onClick={() => onChange([])}
+        className={chip(value.length === 0)}
+      >
+        All buildings
+      </button>
       {options.map(([key, label]) => (
         <button
           key={key}
           type="button"
-          aria-pressed={value === key}
-          onClick={() => onChange(key)}
-          className={chip(value === key)}
+          aria-pressed={value.includes(key)}
+          onClick={() => toggle(key)}
+          className={chip(value.includes(key))}
         >
           {label}
         </button>
