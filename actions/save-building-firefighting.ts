@@ -29,7 +29,6 @@ export default defineAction({
       )
       .max(60)
       .optional(),
-    actWeights: z.array(z.number().min(0).max(100000)).length(4).optional(),
   }),
   requiresAuth: true,
   run: async ({
@@ -40,7 +39,6 @@ export default defineAction({
     status,
     reason,
     units,
-    actWeights,
   }) => {
     const email = getRequestUserEmail();
     if (!email) fail("Authentication required", { statusCode: 401 });
@@ -82,8 +80,8 @@ export default defineAction({
     if (status && !(reason ?? "").trim())
       fail("A reason is required for this status", { statusCode: 400 });
     const unique = TYPES.filter((type) => types.includes(type));
-    // Keep units and activity weights that the caller did not send.
-    let stored: { units?: unknown[]; actWeights?: unknown } = {};
+    // Keep units that the caller did not send.
+    let stored: { units?: unknown[] } = {};
     try {
       stored = existing.trim() ? JSON.parse(existing).firefighting ?? {} : {};
     } catch {
@@ -92,7 +90,6 @@ export default defineAction({
     const keptUnits = (units ?? (stored.units as typeof units) ?? []).filter(
       (u) => unique.includes(u.type),
     );
-    const keptWeights = actWeights ?? stored.actWeights;
     const notes = unique.length
       ? JSON.stringify({
           firefighting: {
@@ -100,7 +97,6 @@ export default defineAction({
             comment: comment.trim(),
             progress: progress ?? [0, 0, 0, 0],
             ...(keptUnits.length ? { units: keptUnits } : {}),
-            ...(keptWeights ? { actWeights: keptWeights } : {}),
             ...(status ? { status, reason: (reason ?? "").trim() } : {}),
           },
         })
