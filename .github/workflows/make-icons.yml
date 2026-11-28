@@ -34,8 +34,8 @@ jobs:
             ['public/icon-source.svg', 'public/icon-maskable-512.png', 512],
             ['public/icon-source.svg', 'public/icon-180.png', 180],
             ['public/icon-source.svg', 'public/icon-152.png', 152],
-            ['public/favicon.svg', 'public/favicon-32.png', 32],
-            ['public/favicon.svg', 'public/favicon-16.png', 16],
+            ['public/icon-source.svg', 'public/favicon-32.png', 32],
+            ['public/icon-source.svg', 'public/favicon-16.png', 16],
           ];
           (async () => {
             for (const [src, out, size] of jobs) {
@@ -45,6 +45,10 @@ jobs:
                 .toFile(out);
               console.log('wrote', out, size);
             }
+            const b = await sharp(fs.readFileSync('public/icon-source.svg'), { density: 600 })
+              .resize(96, 96, { fit: 'contain' }).png({ compressionLevel: 9 }).toBuffer();
+            fs.writeFileSync('public/favicon.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><image width="96" height="96" href="data:image/png;base64,' + b.toString('base64') + '"/></svg>');
+            console.log('wrote favicon.svg');
           })().catch((e) => {
             console.error(e);
             process.exit(1);
@@ -56,6 +60,8 @@ jobs:
           python3 - <<'PY'
           p = 'app/routes/_index.tsx'
           s = open(p).read()
+          if 'bg-amber-500 text-[#132330]' not in s:
+            raise SystemExit(0)
           a = s.index('<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500')
           b = s.index('</div>', a) + len('</div>')
           new = '<img src="/icon-192.png" alt="APRC" width={40} height={40} className="h-10 w-10 rounded-xl object-contain" />'
@@ -68,6 +74,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/icon-*.png public/favicon-*.png app/routes/_index.tsx
+          git add public/icon-*.png public/favicon-*.png public/favicon.svg app/routes/_index.tsx
           git commit -m "Generate app icon PNGs from SVG masters" || echo "nothing to commit"
           git push
