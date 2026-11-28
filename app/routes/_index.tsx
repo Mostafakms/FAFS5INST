@@ -5502,14 +5502,7 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
     const parsed = JSON.parse(notes);
     const ff = parsed?.firefighting;
     if (!ff || !Array.isArray(ff.types)) return empty;
-    return {
-      types: ff.types.filter(
-        (t: unknown): t is string => typeof t === "string",
-      ),
-      comment: typeof ff.comment === "string" ? ff.comment : "",
-      status: FIREFIGHTING_MANUAL_STATUSES.includes(ff.status) ? ff.status : "",
-      reason: typeof ff.reason === "string" ? ff.reason : "",
-      units: Array.isArray(ff.units)
+    const units: FirefightingUnit[] = Array.isArray(ff.units)
         ? ff.units
             .filter(
               (u: any) =>
@@ -5528,9 +5521,27 @@ function parseFirefighting(notes: string | undefined): FirefightingData {
                 return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
               }),
             }))
-        : [],
+        : [];
+    return {
+      types: ff.types.filter(
+        (t: unknown): t is string => typeof t === "string",
+      ),
+      comment: typeof ff.comment === "string" ? ff.comment : "",
+      status: FIREFIGHTING_MANUAL_STATUSES.includes(ff.status) ? ff.status : "",
+      reason: typeof ff.reason === "string" ? ff.reason : "",
+      units,
       actWeights: [...FF_ACT_WEIGHTS],
+      // With units, each activity value of the building is the unit-weighted
+      // average of that activity across its units (so every page that shows
+      // the four activities follows the units). Without units: stored values.
       progress: FIREFIGHTING_ACTIVITIES.map((_, i) => {
+        if (units.length > 0) {
+          const total = units.reduce((a, u) => a + u.weight, 0);
+          return total > 0
+            ? units.reduce((sum, u) => sum + u.progress[i] * u.weight, 0) /
+                total
+            : units.reduce((sum, u) => sum + u.progress[i], 0) / units.length;
+        }
         const n = Number(Array.isArray(ff.progress) ? ff.progress[i] : 0);
         return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
       }),
