@@ -1,4 +1,4 @@
-const CACHE_NAME = "fafs-static-v3";
+const CACHE_NAME = "fafs-static-v4";
 const PRECACHE = [
   "./manifest.json",
   "./icon-192.png",
