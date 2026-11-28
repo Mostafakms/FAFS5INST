@@ -26,9 +26,11 @@ import {
   IconCurrentLocation,
   IconMaximize,
   IconMenu2,
+  IconMinimize,
   IconSearch,
   IconSettings,
   IconUsers,
+  IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -1028,6 +1030,9 @@ export default function HomeRoute() {
   const [mapPanMode, setMapPanMode] = useState(false);
   const [mapDragging, setMapDragging] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  const [mapFiltersOpen, setMapFiltersOpen] = useState(false);
+  const mapFilterCount =
+    statusFilter.length + (ffFilter === "all" ? 0 : 1);
   const mapViewportRef = useRef<HTMLDivElement>(null);
   const mapShellRef = useRef<HTMLDivElement>(null);
   const [mapAspect, setMapAspect] = useState(3877 / 2009);
@@ -1110,6 +1115,7 @@ export default function HomeRoute() {
   );
   const toggleMapFullscreen = (next: boolean) => {
     setMapFullscreen(next);
+    if (!next) setMapFiltersOpen(false);
     try {
       if (next) {
         void mapShellRef.current?.requestFullscreen?.().catch(() => {});
@@ -3759,9 +3765,8 @@ export default function HomeRoute() {
                             </div>
                           )}
                       </div>
-                      <div
-                        className={`flex flex-wrap items-center gap-3 bg-slate-50 p-2.5 ${mapFullscreen ? "shrink-0 rounded-none" : "mt-4 rounded-lg"}`}
-                      >
+                      {!mapFullscreen && (
+                      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-2.5">
                         <button
                           type="button"
                           onClick={() => zoomMapTo(currentMapZoom() / 1.25)}
@@ -3851,20 +3856,6 @@ export default function HomeRoute() {
                           </p>
                         )}
                       </div>
-                      {mapFullscreen && (
-                        <div className="shrink-0 bg-slate-50 px-2.5 pb-2.5">
-                          <StatusFilterChips
-                            value={statusFilter}
-                            onChange={setStatusFilter}
-                            counts={modeStatusCounts}
-                          />
-                          <div className="mt-1.5">
-                            <FirefightingFilterChips
-                              value={ffFilter}
-                              onChange={setFfFilter}
-                            />
-                          </div>
-                        </div>
                       )}
                       <div
                         style={
@@ -3872,6 +3863,107 @@ export default function HomeRoute() {
                         }
                         className={`relative ${mapFullscreen ? "min-h-0 flex-1" : "mt-3 max-h-[80vh] w-full"}`}
                       >
+                        {mapFullscreen && (
+                          <>
+                            {geo.status !== "off" && (
+                              <div className="pointer-events-none absolute left-2.5 top-2.5 z-40 max-w-[65%] rounded-full bg-slate-900/80 px-3 py-1.5 text-[10px] font-semibold text-white shadow-lg backdrop-blur">
+                                {geo.status === "ok"
+                                  ? `Your location, accuracy about ${Math.round(geo.accuracy ?? 0)} m.`
+                                  : (geo.message ?? "")}
+                              </div>
+                            )}
+                            {mapFiltersOpen && (
+                              <div
+                                className="absolute inset-0 z-40 bg-black/25"
+                                onClick={() => setMapFiltersOpen(false)}
+                                aria-hidden="true"
+                              />
+                            )}
+                            <div className="absolute bottom-0 right-0 z-50 flex items-center gap-2 p-3">
+                              <button
+                                type="button"
+                                onClick={() => toggleMapFullscreen(false)}
+                                aria-label="Exit full screen"
+                                title="Exit full screen"
+                                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-slate-900/80 text-white shadow-lg backdrop-blur active:scale-95"
+                              >
+                                <IconMinimize size={18} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={toggleGeo}
+                                aria-pressed={geo.status !== "off"}
+                                aria-label={
+                                  geo.status === "off"
+                                    ? "My location"
+                                    : "Stop location"
+                                }
+                                title={
+                                  geo.status === "off"
+                                    ? "My location"
+                                    : "Stop location"
+                                }
+                                className={`inline-flex h-11 w-11 items-center justify-center rounded-full border text-white shadow-lg backdrop-blur active:scale-95 ${geo.status === "ok" ? "border-blue-300/60 bg-blue-600/90" : "border-white/25 bg-slate-900/80"}`}
+                              >
+                                <IconCurrentLocation
+                                  size={18}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMapFiltersOpen((open) => !open)}
+                                aria-expanded={mapFiltersOpen}
+                                aria-controls="map-filters-panel"
+                                aria-label="Filters"
+                                title="Filters"
+                                className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full border text-white shadow-lg backdrop-blur active:scale-95 ${mapFiltersOpen || mapFilterCount > 0 ? "border-white/40 bg-[#142b3c]" : "border-white/25 bg-slate-900/80"}`}
+                              >
+                                <IconFilter size={18} aria-hidden="true" />
+                                {mapFilterCount > 0 && (
+                                  <span className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-slate-900">
+                                    {mapFilterCount}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                            {mapFiltersOpen && (
+                              <div
+                                id="map-filters-panel"
+                                role="dialog"
+                                aria-label="Map filters"
+                                className="absolute inset-x-0 bottom-0 z-50 max-h-[70%] overflow-y-auto rounded-t-2xl border-t border-slate-200 bg-white px-3 pb-16 pt-2.5 shadow-2xl"
+                              >
+                                <div className="mb-2 flex items-center justify-between">
+                                  <span className="h-1 w-10 rounded-full bg-slate-200" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setMapFiltersOpen(false)}
+                                    aria-label="Close filters"
+                                    className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                  >
+                                    <IconX size={16} aria-hidden="true" />
+                                  </button>
+                                </div>
+                                <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                  Status
+                                </div>
+                                <StatusFilterChips
+                                  value={statusFilter}
+                                  onChange={setStatusFilter}
+                                  counts={modeStatusCounts}
+                                />
+                                <div className="mb-1.5 mt-3 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                  Firefighting
+                                </div>
+                                <FirefightingFilterChips
+                                  value={ffFilter}
+                                  onChange={setFfFilter}
+                                />
+                              </div>
+                            )}
+                          </>
+                        )}
                         {selectedMapBuilding &&
                           mode === "Total" &&
                           parseFirefighting(selectedMapBuilding.notes).types
